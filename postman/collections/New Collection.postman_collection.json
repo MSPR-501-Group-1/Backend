@@ -1,0 +1,193 @@
+{
+  "info": {
+    "_postman_id": "5bdf96e8-d3ac-4ee6-b39f-7ff3537c1827",
+    "name": "MSPR1",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "All users",
+      "id": "74dc0a34-11c9-4198-9617-e4ea2a9979c2",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/users",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "users"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "User by ID",
+      "id": "d7054bdb-cc92-4deb-a910-116dbdf6f29e",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/users/3017f2b4-bf89-4d55-9985-d6f569f17e29",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "users",
+            "3017f2b4-bf89-4d55-9985-d6f569f17e29"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Register",
+      "id": "d063db2a-fe06-481f-ac5e-30e81e694a81",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"email\": \"vbechet@gmail.com\",\n    \"first_name\": \"Victor\",\n    \"last_name\": \"Bechet\",\n    \"role_code\": \"ADMIN\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:3000/auth/register",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "auth",
+            "register"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Login",
+      "id": "5bebf699-e56c-4a08-b340-4d3cb594110b",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"email\": \"victorbechet5@gmail.com\",\r\n    \"password\": \"MonMotDePasse123\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:3000/auth/login",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "auth",
+            "login"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Update user",
+      "id": "3185201f-4d4c-4fa5-9c25-e43f9c0107a3",
+      "request": {
+        "method": "PUT",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"role_code\": \"ADMIN\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:3000/users/3017f2b4-bf89-4d55-9985-d6f569f17e29",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "users",
+            "3017f2b4-bf89-4d55-9985-d6f569f17e29"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Soft delete",
+      "id": "4b6b778f-eb33-416d-aa32-f73c41675f7b",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/users/3017f2b4-bf89-4d55-9985-d6f569f17e29",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "users",
+            "3017f2b4-bf89-4d55-9985-d6f569f17e29"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Hard delete",
+      "id": "d1cb0b94-7394-4d91-8e81-51d2a0911c77",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/users/3017f2b4-bf89-4d55-9985-d6f569f17e29/hard",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "users",
+            "3017f2b4-bf89-4d55-9985-d6f569f17e29",
+            "hard"
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiN2I4ZDBiNzktZjJjMC00NzMwLWEyMjAtMjY5NzIxODkyZDQ0IiwiZW1haWwiOiJ2aWN0b3JiZWNoZXQ1QGdtYWlsLmNvbSIsInJvbGVfY29kZSI6IkFETUlOIiwiaWF0IjoxNzcwMTM3MTgzLCJleHAiOjE3NzAyMjM1ODN9.4oX19jXyF3ahwtUqEsWj5jvlxRJ05nU0Ls2vcwdvda0",
+        "type": "string"
+      }
+    ]
+  }
+}
