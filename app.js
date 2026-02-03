@@ -1,9 +1,10 @@
 import express from "express";
 import cors from "cors";
 import 'dotenv/config';
-import db from "./db.js";
+import { db } from "./db.js";
 
 import userRoutes from "./routes/user.route.js";
+import authRoutes from "./routes/auth.route.js";
 
 const app = express();
 
@@ -15,7 +16,19 @@ app.use(cors({
 
 app.use(express.json());
 
-// Routes availables
-app.use("/user", userRoutes);
+// Routes publiques d'authentification
+app.use("/auth", authRoutes);
+
+// Routes protégées
+app.use("/users", userRoutes);
+
+// Middleware de gestion d'erreurs global
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({
+    success: false,
+    message: "Erreur serveur interne"
+  });
+});
 
 export default app;
