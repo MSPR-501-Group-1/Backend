@@ -140,3 +140,21 @@ export const validate = (schema) => {
         }
     };
 };
+
+export const subscriptionPlanSchema = z.object({
+    name: z
+        .string()
+        .min(1, "Nom requis")
+        .max(100, "Nom trop long"),
+    monthly_price: z
+        .number(),
+    duration_months: z
+        .number()
+        .int()
+        .min(1, "Durée en mois requise")
+        .max(120, "Durée en mois trop longue"),
+    features_json: z
+        .optional(),
+    is_active: z
+        .boolean()
+});
