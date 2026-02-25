@@ -159,3 +159,32 @@ export const hardDeleteUser = async (req, res) => {
         });
     }
 };
+
+// Change user's password (owner or admin)
+export const changePassword = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // accept both camelCase and snake_case from request body
+        const currentPassword = req.body.currentPassword || req.body.current_password;
+        const newPassword = req.body.newPassword || req.body.new_password;
+
+        if (!currentPassword || !newPassword) {
+            return res.status(400).json({ success: false, message: "Champs de mot de passe manquants" });
+        }
+
+        // userService will throw errors for not found / invalid password
+        await userService.changePassword(id, currentPassword, newPassword);
+
+        res.status(200).json({ success: true, message: "Mot de passe changé avec succès" });
+    } catch (error) {
+        if (error.message === "USER_NOT_FOUND") {
+            return res.status(404).json({ success: false, message: "Utilisateur non trouvé" });
+        }
+        if (error.message === "INVALID_PASSWORD") {
+            return res.status(400).json({ success: false, message: "Mot de passe actuel invalide" });
+        }
+        console.error("Erreur changePassword:", error);
+        res.status(500).json({ success: false, message: "Erreur lors du changement de mot de passe" });
+    }
+};

@@ -10,7 +10,7 @@ export const getUsers = async () => {
     const query = 
     `
         SELECT user_id, email, first_name, last_name, birth_date, gender_code, role_code, created_at, is_active 
-        FROM users 
+        FROM user_ 
         WHERE 1=1
     `;
 
@@ -24,7 +24,7 @@ export const getUserById = async (id) => {
 
     const query = `
         SELECT user_id, email, first_name, last_name, birth_date, gender_code, role_code, created_at, is_active 
-        FROM users WHERE user_id = $1
+        FROM user_ WHERE user_id = $1
     `;
 
     const result = await db.query(query, [id]);
@@ -38,7 +38,7 @@ export const createUser = async (data) => {
 
     // We check if the email already exist, and we send an error if so
     const existingUser = await db.query(
-        "SELECT user_id FROM users WHERE email = $1",
+        "SELECT user_id FROM user_ WHERE email = $1",
         [email]
     );
 
@@ -50,7 +50,7 @@ export const createUser = async (data) => {
     const user_id = uuidv4(); // On crée l'uuid
 
     const result = await db.query(
-        `INSERT INTO users (user_id, email, password_hash, first_name, last_name, birth_date, gender_code, role_code, created_at, is_active)
+        `INSERT INTO user_ (user_id, email, password_hash, first_name, last_name, birth_date, gender_code, role_code, created_at, is_active)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9)
          RETURNING user_id, email, first_name, last_name, birth_date, gender_code, role_code, created_at, is_active`,
         [user_id, email, password_hash, first_name, last_name, birth_date || null, gender_code || null, role_code || "USER", is_active !== false]
@@ -80,7 +80,7 @@ export const updateUser = async (id, data) => {
     // Vérifier si l'email est disponible (si un le mail est modifié)
     if (data.email) {
         const existingUser = await db.query(
-            "SELECT user_id FROM users WHERE email = $1 AND user_id != $2",
+            "SELECT user_id FROM user_ WHERE email = $1 AND user_id != $2",
             [data.email, id]
         );
         if (existingUser.rows.length > 0) {
@@ -91,7 +91,7 @@ export const updateUser = async (id, data) => {
     params.push(id);
 
     const result = await db.query(
-        `UPDATE users SET ${updates.join(", ")} WHERE user_id = $${paramIndex}
+        `UPDATE user_ SET ${updates.join(", ")} WHERE user_id = $${paramIndex}
          RETURNING user_id, email, first_name, last_name, birth_date, gender_code, role_code, created_at, is_active`,
         params
     );
@@ -102,7 +102,7 @@ export const updateUser = async (id, data) => {
 // PUT a user's activity by id
 export const softDeleteUser = async (id) => {
     const result = await db.query(
-        "UPDATE users SET is_active = false WHERE user_id = $1 RETURNING user_id",
+        "UPDATE user_ SET is_active = false WHERE user_id = $1 RETURNING user_id",
         [id]
     );
     return result.rows[0] || null;
@@ -111,7 +111,7 @@ export const softDeleteUser = async (id) => {
 // DELETE a user by id
 export const hardDeleteUser = async (id) => {
     const result = await db.query(
-        "DELETE FROM users WHERE user_id = $1 RETURNING user_id",
+        "DELETE FROM user_ WHERE user_id = $1 RETURNING user_id",
         [id]
     );
     return result.rows[0] || null;
@@ -120,7 +120,7 @@ export const hardDeleteUser = async (id) => {
 // LOGIN - Log the user in (check email / password / account disabled)
 export const login = async (email, password) => {
     const result = await db.query(
-        "SELECT * FROM users WHERE email = $1",
+        "SELECT * FROM user_ WHERE email = $1",
         [email]
     );
 
@@ -146,7 +146,7 @@ export const login = async (email, password) => {
 // PUT - Change the user's password
 export const changePassword = async (user_id, currentPassword, newPassword) => {
     const result = await db.query(
-        "SELECT password_hash FROM users WHERE user_id = $1",
+        "SELECT password_hash FROM user_ WHERE user_id = $1",
         [user_id]
     );
 
@@ -163,7 +163,7 @@ export const changePassword = async (user_id, currentPassword, newPassword) => {
     const newPasswordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
 
     await db.query(
-        "UPDATE users SET password_hash = $1 WHERE user_id = $2",
+        "UPDATE user_ SET password_hash = $1 WHERE user_id = $2",
         [newPasswordHash, user_id]
     );
 
