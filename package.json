@@ -2,8 +2,8 @@
   "name": "backend",
   "version": "1.0.0",
   "scripts": {
-    "swagger": "node ./app/swagger.cjs",
-    "start": "npm run swagger && node ./app/server.js"
+    "swagger": "node ./swagger.cjs",
+    "start": "npm run swagger && node ./server.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

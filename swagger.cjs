@@ -1,6 +1,4 @@
 const swaggerAutogen = require('swagger-autogen')();
-const fs = require('fs');
-const path = require('path');
 
 const doc = {
   info: { title: 'Mon API', description: 'Documentation automatique' },
@@ -10,7 +8,6 @@ const doc = {
 
 const outputFile = './swagger-output.json';
 
-const routesPath = './app/routes';
-const routes = fs.readdirSync(routesPath).map(file => path.join(routesPath, file));
+const routes = ['./app.js']; // ou './routes/*.route.js' ???
 
 swaggerAutogen(outputFile, routes, doc);
