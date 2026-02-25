@@ -2,7 +2,8 @@
   "name": "backend",
   "version": "1.0.0",
   "scripts": {
-    "start": "node ./app/server.js"
+    "swagger": "node ./app/swagger.cjs",
+    "start": "npm run swagger && node ./app/server.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -12,6 +13,8 @@
     "express-validator": "^7.3.1",
     "jsonwebtoken": "^9.0.3",
     "pg": "^8.18.0",
+    "swagger-autogen": "^2.23.7",
+    "swagger-ui-express": "^5.0.1",
     "uuid": "^13.0.0",
     "zod": "^4.3.5"
   },
