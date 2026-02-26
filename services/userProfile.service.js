@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 
 export const getUserProfiles = async () => {
     const result = await db.query(`
-        SELECT profile_id, user_id, height_cm, current_weight_kg, activity_level_ref, health_goal_id, allergies_json, preferences_json, updated_at
+        SELECT profile_id, user_id, height_cm, current_weight_kg, activity_level_ref, goal_id, allergies_json, preferences_json, updated_at
         FROM user_profile
     `);
     return result.rows;

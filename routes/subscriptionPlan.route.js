@@ -1,7 +1,8 @@
 import express from "express";
 import * as controller from "../controllers/subscriptionPlan.controller.js";
 import { authenticate, authorize } from "../middlewares/auth.middleware.js";
-import { validate, adminUpdateUserSchema, registerSchema, subscriptionPlanSchema } from "../validators/user.validator.js";
+import { validate, adminUpdateUserSchema, registerSchema } from "../validators/user.validator.js";
+import { subscriptionPlanSchema } from "../validators/schemas.js";
 
 const router = express.Router();
 

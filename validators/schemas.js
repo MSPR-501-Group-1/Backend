@@ -123,6 +123,29 @@ export const progressTrackerSchema = z.object({
     end_date: z.string().optional()
 });
 
+export const ingredientsSchema = z.object({
+    name: z.string().min(1),
+    brand: z.string().optional(),
+    calories_100g: z.number().optional(),
+    fat_100g: z.number().optional(),
+    nutriscore: z.number().optional(),
+    category_ref: z.string().optional(),
+    fiber_g: z.number().optional(),
+    sugar_g: z.number().optional(),
+    sodium_mg: z.number().optional(),
+    cholesterol_mg: z.number().optional(),
+    protein_100g: z.number().optional(),
+    carbs_100g: z.number().optional()
+});
+
+export const ingredientsAteSchema = z.object({
+    consumed_at: z.string().optional(),
+    quantity_grams: z.number().optional(),
+    meal_type: z.string().optional(),
+    calories_consumed: z.number().optional(),
+    user_id: z.string().uuid()
+});
+
 export const userMetricsSchema = z.object({
     user_id: z.string().uuid(),
     metric_type: z.string().optional(),
@@ -181,12 +204,11 @@ export const userProfileSchema = z.object({
 export default {
     subscriptionPlanSchema,
     subscriptionSchema,
-    invoiceSchema,
     paymentTransactionSchema,
-    foodSchema,
+    ingredientsSchema,
     recipeSchema,
     recipeIngredientSchema,
-    foodDiarySchema,
+    ingredientsAteSchema,
     activityTypeSchema,
     exerciseSchema,
     workoutSessionSchema,
@@ -194,7 +216,6 @@ export default {
     connectedDeviceSchema,
     biometricMeasureSchema,
     aiRecommendationSchema,
-    progressTrackerSchema,
     userMetricsSchema,
     dietRecommendationSchema,
     dataSourceSchema,
