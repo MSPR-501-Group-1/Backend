@@ -2,22 +2,22 @@ import { db } from "../db.js";
 import { v4 as uuidv4 } from "uuid";
 
 export const getHistories = async () => {
-    const result = await db.query(`SELECT id_history FROM history`);
+    const result = await db.query(`SELECT history_id FROM history`);
     return result.rows;
 };
 
 export const getHistoryById = async (id) => {
-    const result = await db.query(`SELECT id_history FROM history WHERE id_history = $1`, [id]);
+    const result = await db.query(`SELECT history_id FROM history WHERE history_id = $1`, [id]);
     return result.rows[0] || null;
 };
 
 export const createHistory = async () => {
-    const id_history = uuidv4();
-    const result = await db.query(`INSERT INTO history (id_history) VALUES ($1) RETURNING id_history`, [id_history]);
+    const history_id = uuidv4();
+    const result = await db.query(`INSERT INTO history (history_id) VALUES ($1) RETURNING history_id`, [history_id]);
     return result.rows[0] || null;
 };
 
 export const deleteHistory = async (id) => {
-    const result = await db.query(`DELETE FROM history WHERE id_history = $1 RETURNING id_history`, [id]);
+    const result = await db.query(`DELETE FROM history WHERE history_id = $1 RETURNING history_id`, [id]);
     return result.rows[0] || null;
 };

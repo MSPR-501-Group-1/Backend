@@ -1,4 +1,5 @@
 import * as userService from "../services/user.service.js";
+import * as userProfileService from "../services/userProfile.service.js";
 
 // Get all users
 export const getUsers = async (req, res) => {
@@ -54,6 +55,7 @@ export const createUser = async (req, res) => {
             message: "Utilisateur créé avec succès",
             data: user
         });
+
     } catch (error) {
         if (error.message === "EMAIL_EXISTS") {
             return res.status(409).json({

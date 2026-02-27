@@ -18,7 +18,9 @@ export const register = async (req, res) => {
                     email: user.email,
                     first_name: user.first_name,
                     last_name: user.last_name,
-                    role_code: user.role_code
+                    role_code: user.role_code,
+                    profile_id: user.profile_id,
+                    history_id: user.history_id
                 },
                 token
             }
