@@ -7,8 +7,6 @@ export const register = async (req, res) => {
         const userData = req.body;
         const user = await userService.createUser(userData);
 
-        const token = generateToken(user);
-
         res.status(201).json({
             success: true,
             message: "Inscription réussie",
@@ -21,8 +19,7 @@ export const register = async (req, res) => {
                     role_code: user.role_code,
                     profile_id: user.profile_id,
                     history_id: user.history_id
-                },
-                token
+                }
             }
         });
     } catch (error) {
