@@ -1,5 +1,6 @@
 import * as userService from "../../services/userService/user.service.js";
 import * as authService from "../../services/authService/auth.service.js";
+import * as userProfileService from "../../services/userService/userProfile.service.js";
 import { generateToken } from "../../middlewares/auth.middleware.js";
 
 // Register a new user
@@ -8,9 +9,13 @@ export const register = async (req, res) => {
         const userData = req.body;
         const user = await userService.createUser(userData);
 
+        const userProfile = await userProfileService.createUserProfile({
+            user_id: user.user_id,
+        });
+
         res.status(201).json({
             success: true,
-            message: "Inscription réussie",
+            message: "Inscription réussie, profil utilisateur créé !",
             data: {
                 user: {
                     user_id: user.user_id,

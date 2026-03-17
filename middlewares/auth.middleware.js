@@ -75,7 +75,7 @@ export const requireRole = (...allowedRoles) => {
 // Allows the resource owner OR an admin to proceed.
 // Must run after authenticate.
 export const requireOwnerOrAdmin = (req, res, next) => {
-    const isAdmin = req.user?.role_code === "ADMIN";
+    const isAdmin = req.user?.role_type === "ADMIN";
     const isOwner = req.user?.user_id === req.params.id;
  
     if (!isAdmin && !isOwner) {
@@ -90,7 +90,7 @@ export const requireOwnerOrAdmin = (req, res, next) => {
 // Selects the appropriate update schema based on the user's role.
 // Must run after authenticate.
 export const selectUpdateSchema = (req, res, next) => {
-    const schema = req.user?.role_code === "ADMIN"
+    const schema = req.user?.role_type === "ADMIN"
         ? adminUpdateUserSchema
         : ownerUpdateUserSchema;
  
