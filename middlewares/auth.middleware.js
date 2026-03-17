@@ -33,7 +33,6 @@ export const authenticate = (req, res, next) => {
         const decoded = jwt.verify(token, JWT_SECRET);
  
         req.user = decoded;
-        console.log(`Authenticated user: ${JSON.stringify(req.user)}`); // TODO enelver ce log avant de push en prod
         next();
     } catch (error) {
         if (error.name === "TokenExpiredError") {

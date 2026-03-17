@@ -2,7 +2,6 @@ import * as userService from "../../services/userService/user.service.js";
 
 // Get all users
 export const getUsers = async (req, res) => {
-    console.log(">>> GET /users hit"); // Log the request for debugging
     try {
         const result = await userService.getUsers();
 
