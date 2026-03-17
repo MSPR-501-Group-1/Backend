@@ -4,13 +4,13 @@ import { adminUpdateUserSchema, ownerUpdateUserSchema } from "../schemas/user.sc
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN;
 
-// Generate a JWT token from user_id / email / role_code
+// Generate a JWT token from user_id / email / role_type
 export const generateToken = (user) => {
     return jwt.sign(
         {
             user_id: user.user_id,
             email: user.email,
-            role_code: user.role_code
+            role_type: user.role_type
         },
         JWT_SECRET,
         { expiresIn: JWT_EXPIRES_IN }
@@ -21,18 +21,19 @@ export const generateToken = (user) => {
 export const authenticate = (req, res, next) => {
     try {
         const authHeader = req.headers.authorization;
-
+ 
         if (!authHeader || !authHeader.startsWith("Bearer ")) {
             return res.status(401).json({
                 success: false,
                 message: "Token d'authentification requis"
             });
         }
-
+ 
         const token = authHeader.split(" ")[1];
         const decoded = jwt.verify(token, JWT_SECRET);
-
+ 
         req.user = decoded;
+        console.log(`Authenticated user: ${JSON.stringify(req.user)}`); // TODO enelver ce log avant de push en prod
         next();
     } catch (error) {
         if (error.name === "TokenExpiredError") {
@@ -47,9 +48,11 @@ export const authenticate = (req, res, next) => {
         });
     }
 };
-
-// Needs auth (token) to allow
-export const requireAuth = (...allowedRoles) => {
+ 
+// Verifies that req.user exists and has one of the allowed roles.
+// Call with no args to just require authentication: requireRole()
+// Must run after authenticate.
+export const requireRole = (...allowedRoles) => {
     return (req, res, next) => {
         if (!req.user) {
             return res.status(401).json({
@@ -58,23 +61,23 @@ export const requireAuth = (...allowedRoles) => {
             });
         }
 
-        if (!allowedRoles.includes(req.user.role_code)) {
+        if (allowedRoles.length > 0 && !allowedRoles.includes(req.user.role_type)) {
             return res.status(403).json({
                 success: false,
                 message: "Accès non autorisé pour ce rôle"
             });
         }
-
+ 
         next();
     };
 };
-
+ 
 // Allows the resource owner OR an admin to proceed.
 // Must run after authenticate.
 export const requireOwnerOrAdmin = (req, res, next) => {
-    const isAdmin = req.user.role_code === "ADMIN";
-    const isOwner = req.user.user_id === req.params.id;
-
+    const isAdmin = req.user?.role_code === "ADMIN";
+    const isOwner = req.user?.user_id === req.params.id;
+ 
     if (!isAdmin && !isOwner) {
         return res.status(403).json({
             success: false,
@@ -83,28 +86,18 @@ export const requireOwnerOrAdmin = (req, res, next) => {
     }
     next();
 };
-
-// Restricts a route to admins only.
+ 
+// Selects the appropriate update schema based on the user's role.
 // Must run after authenticate.
-export const requireAdmin = (req, res, next) => {
-    if (req.user.role_code !== "ADMIN") {
-        return res.status(403).json({
-            success: false,
-            message: "Accès non autorisé"
-        });
-    }
-    next();
-};
-
 export const selectUpdateSchema = (req, res, next) => {
-    const schema = req.user.role_code === "ADMIN"
+    const schema = req.user?.role_code === "ADMIN"
         ? adminUpdateUserSchema
         : ownerUpdateUserSchema;
-
+ 
     return validate(schema)(req, res, next);
 };
-
-// And this is the function (middleware) that require the datas to stick to zod validators
+ 
+// Validates req.body against a Zod schema.
 export const validate = (schema) => {
     return (req, res, next) => {
         try {
@@ -127,11 +120,10 @@ export const validate = (schema) => {
 };
 
 export default {
-    generateToken,
     authenticate,
-    requireAuth,
+    requireRole,
     requireOwnerOrAdmin,
-    requireAdmin,
     selectUpdateSchema,
-    validate
+    validate,
+    generateToken,
 };
