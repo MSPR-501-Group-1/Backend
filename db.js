@@ -1,15 +1,14 @@
 // Put the information of db connexion right here
-
 import pg from "pg";
 
 const { Pool } = pg;
 
 export const db = new Pool({
-    host: process.env.DB_HOST || "localhost",
-    port: process.env.DB_PORT || 5432,
-    database: process.env.DB_NAME || "testdb",
-    user: process.env.DB_USER || "postgres",
-    password: process.env.DB_PASSWORD || "postgres",
+    host: process.env.POSTGRES_HOST,
+    port: process.env.POSTGRES_PORT,
+    database: process.env.POSTGRES_DB,
+    user: process.env.POSTGRES_USER,
+    password: process.env.POSTGRES_PASSWORD
 });
 
 // Test de connexion

@@ -1,3 +1,6 @@
+import { db } from "../../db.js";
+import bcrypt from "bcryptjs";
+import { v4 as uuidv4 } from "uuid";
 
 // LOGIN - Log the user in (check email / password / account disabled)
 export const login = async (email, password) => {

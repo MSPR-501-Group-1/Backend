@@ -1,17 +1,13 @@
 import express from "express";
-import * as controller from "../controllers/userProfile.controller.js";
-import { authenticate, authorize } from "../middlewares/auth.middleware.js";
-import { validate } from "../validators/user.validator.js";
-import { userProfileSchema } from "../validators/schemas.js";
+import * as controller from "../controllers/userController/userProfile.controller.js";
+import { validate, requireAuth, requireAdmin, requireOwnerOrAdmin } from "../middlewares/auth.middleware.js";
+import { createUserProfileSchema, updateUserProfileSchema } from "../schemas/userProfile.schema.js";
 
 const router = express.Router();
 
-router.use(authenticate);
-
-router.get("/", authorize("ADMIN"), controller.getUserProfiles);
-router.post("/", authorize("ADMIN"), validate(userProfileSchema), controller.createUserProfile);
-router.get("/:id", authorize("ADMIN"), controller.getUserProfileById);
-router.put("/:id", authorize("ADMIN"), validate(userProfileSchema), controller.updateUserProfile);
-router.delete("/:id", authorize("ADMIN"), controller.deleteUserProfile);
+router.post("/",        requireAuth, requireAdmin, validate(createUserProfileSchema), controller.createUserProfile);
+router.get("/:id",      requireAuth, requireAdmin, controller.getUserProfile);
+router.put("/:id",      requireAuth, requireAdmin, validate(updateUserProfileSchema), controller.updateUserProfile);
+router.delete("/:id",   requireAuth, requireAdmin, controller.deleteUserProfile);
 
 export default router;

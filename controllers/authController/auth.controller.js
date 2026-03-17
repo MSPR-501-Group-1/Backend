@@ -1,4 +1,5 @@
-import * as userService from "../../services/user.service.js";
+import * as userService from "../../services/userService/user.service.js";
+import * as authService from "../../services/authService/auth.service.js";
 import { generateToken } from "../../middlewares/auth.middleware.js";
 
 // Register a new user
@@ -16,7 +17,7 @@ export const register = async (req, res) => {
                     email: user.email,
                     first_name: user.first_name,
                     last_name: user.last_name,
-                    role_code: user.role_code,
+                    role_type: user.role_type,
                     history_id: user.history_id
                 }
             }
@@ -40,7 +41,7 @@ export const register = async (req, res) => {
 export const login = async (req, res) => {
     try {
         const { email, password } = req.body;
-        const user = await userService.login(email, password);
+        const user = await authService.login(email, password);
 
         const token = generateToken(user);
 
@@ -53,7 +54,7 @@ export const login = async (req, res) => {
                     email: user.email,
                     first_name: user.first_name,
                     last_name: user.last_name,
-                    role_code: user.role_code
+                    role_type: user.role_type
                 },
                 token
             }
@@ -100,7 +101,7 @@ export const getMe = async (req, res) => {
                 last_name: user.last_name,
                 birth_date: user.birth_date,
                 gender_code: user.gender_code,
-                role_code: user.role_code,
+                role_type: user.role_type,
                 created_at: user.created_at,
                 is_active: user.is_active
             }

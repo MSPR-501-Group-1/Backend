@@ -5,26 +5,6 @@ import { db } from "./db.js";
 
 import userRoutes from "./routes/user.route.js";
 import authRoutes from "./routes/auth.route.js";
-import subscriptionPlanRoutes from "./routes/subscriptionPlan.route.js";
-import subscriptionRoutes from "./routes/subscription.route.js";
-import paymentRoutes from "./routes/payment.route.js";
-import recipeRoutes from "./routes/recipe.route.js";
-import recipeIngredientRoutes from "./routes/recipeIngredient.route.js";
-import ingredientsRoutes from "./routes/ingredients.route.js";
-import ingredientsAteRoutes from "./routes/ingredientsAte.route.js";
-import societyRoutes from "./routes/society.route.js";
-import historyRoutes from "./routes/history.route.js";
-import activityTypeRoutes from "./routes/activityType.route.js";
-import exerciseRoutes from "./routes/exercise.route.js";
-import workoutSessionRoutes from "./routes/workoutSession.route.js";
-import sessionDetailRoutes from "./routes/sessionDetail.route.js";
-import userMetricsRoutes from "./routes/userMetrics.route.js";
-import dietRecommendationRoutes from "./routes/dietRecommendation.route.js";
-import dataSourceRoutes from "./routes/dataSource.route.js";
-import etlExecutionRoutes from "./routes/etlExecution.route.js";
-import dataQualityCheckRoutes from "./routes/dataQualityCheck.route.js";
-import dataAnomalyRoutes from "./routes/dataAnomaly.route.js";
-import healthGoalRoutes from "./routes/healthGoal.route.js";
 import userProfileRoutes from "./routes/userProfile.route.js";
 
 const app = express();
@@ -37,38 +17,11 @@ app.use(cors({
 
 app.use(express.json());
 
-app.get("/health", (_req, res) => {
-  res.status(200).json({
-    success: true,
-    status: "ok"
-  });
-});
-
 // Routes publiques d'authentification
 app.use("/auth", authRoutes);
 
 // Routes protégées
 app.use("/users", userRoutes);
-app.use("/subscription-plans", subscriptionPlanRoutes);
-app.use("/subscriptions", subscriptionRoutes);
-app.use("/payments", paymentRoutes);
-app.use("/recipes", recipeRoutes);
-app.use("/recipe-ingredients", recipeIngredientRoutes);
-app.use("/ingredients", ingredientsRoutes);
-app.use("/ingredients-ate", ingredientsAteRoutes);
-app.use("/societies", societyRoutes);
-app.use("/histories", historyRoutes);
-app.use("/activity-types", activityTypeRoutes);
-app.use("/exercises", exerciseRoutes);
-app.use("/workouts", workoutSessionRoutes);
-app.use("/session-details", sessionDetailRoutes);
-app.use("/user-metrics", userMetricsRoutes);
-app.use("/diet-recommendations", dietRecommendationRoutes);
-app.use("/data-sources", dataSourceRoutes);
-app.use("/etl-executions", etlExecutionRoutes);
-app.use("/data-quality-checks", dataQualityCheckRoutes);
-app.use("/data-anomalies", dataAnomalyRoutes);
-app.use("/health-goals", healthGoalRoutes);
 app.use("/user-profiles", userProfileRoutes);
 
 // Middleware de gestion d'erreurs global
