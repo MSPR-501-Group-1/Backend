@@ -6,6 +6,7 @@ import userRoutes from "./routes/user.route.js";
 import authRoutes from "./routes/auth.route.js";
 import userProfileRoutes from "./routes/userProfile.route.js";
 import systemRoutes from "./routes/system.route.js";
+import userMetricsRoutes from "./routes/userMetrics.route.js";
 
 const app = express();
 
@@ -26,6 +27,7 @@ app.use("/auth", authRoutes);
 // Routes protégées
 app.use("/users", userRoutes);
 app.use("/user-profiles", userProfileRoutes);
+app.use("/metrics", userMetricsRoutes);
 
 // Middleware de gestion d'erreurs global
 app.use((err, req, res, next) => {
