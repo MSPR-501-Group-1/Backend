@@ -5,6 +5,7 @@ import 'dotenv/config';
 import userRoutes from "./routes/user.route.js";
 import authRoutes from "./routes/auth.route.js";
 import userProfileRoutes from "./routes/userProfile.route.js";
+import systemRoutes from "./routes/system.route.js";
 
 const app = express();
 
@@ -15,6 +16,9 @@ app.use(cors({
 }));
 
 app.use(express.json());
+
+// Health check route pour docker et monitoring
+app.use("/", systemRoutes);
 
 // Routes publiques d'authentification
 app.use("/auth", authRoutes);
