@@ -5,10 +5,7 @@ import 'dotenv/config';
 import userRoutes from "./routes/user.route.js";
 import authRoutes from "./routes/auth.route.js";
 import userProfileRoutes from "./routes/userProfile.route.js";
-<<<<<<< HEAD
 import systemRoutes from "./routes/system.route.js";
-=======
->>>>>>> f192c08 (UserMetrics controller/routes/schema/service for front dashboard fitness)
 import userMetricsRoutes from "./routes/userMetrics.route.js";
 
 const app = express();
