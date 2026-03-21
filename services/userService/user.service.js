@@ -7,8 +7,9 @@ const SALT_ROUNDS = 10;
 // GET all users
 export const getUsers = async () => {
     const query = `
-        SELECT user_id, email, first_name, last_name, birth_date, gender_code, role_type, created_at, is_active
-        FROM user_
+        SELECT u.user_id, u.email, u.first_name, u.last_name, u.birth_date, u.gender_code, r.role_type, u.created_at, u.is_active
+        FROM user_ u
+        LEFT JOIN role r ON u.role_id = r.role_id
         WHERE 1=1
     `;
 
@@ -19,9 +20,10 @@ export const getUsers = async () => {
 // GET a single user by id
 export const getUserById = async (id) => {
     const query = `
-        SELECT user_id, email, first_name, last_name, birth_date, gender_code, role_type, created_at, is_active
-        FROM user_
-        WHERE user_id = $1
+        SELECT u.user_id, u.email, u.first_name, u.last_name, u.birth_date, u.gender_code, r.role_type, u.created_at, u.is_active
+        FROM user_ u
+        LEFT JOIN role r ON u.role_id = r.role_id
+        WHERE u.user_id = $1
     `;
 
     const result = await db.query(query, [id]);
@@ -45,10 +47,15 @@ export const createUser = async (data) => {
     const password_hash = await bcrypt.hash(password, SALT_ROUNDS);
     const user_id = uuidv4();
 
+    // Resolve role_type -> role_id (fallback to FREEMIUM)
+    const roleType = role_type || 'FREEMIUM';
+    const roleRes = await db.query("SELECT role_id FROM role WHERE role_type = $1 LIMIT 1", [roleType]);
+    const role_id = roleRes.rows[0]?.role_id ?? 'ROLE_01';
+
     const result = await db.query(
-        `INSERT INTO user_ (user_id, email, password_hash, first_name, last_name, birth_date, gender_code, role_type, created_at, is_active)
+        `INSERT INTO user_ (user_id, email, password_hash, first_name, last_name, birth_date, gender_code, role_id, created_at, is_active)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9)
-         RETURNING user_id, email, first_name, last_name, birth_date, gender_code, role_type, created_at, is_active`,
+         RETURNING user_id, email, first_name, last_name, birth_date, gender_code, created_at, is_active, role_id`,
         [
             user_id,
             email,
@@ -57,17 +64,30 @@ export const createUser = async (data) => {
             last_name,
             birth_date || null,
             gender_code || null,
-            role_type || "FREEMIUM",
+            role_id,
             is_active !== false,
         ]
     );
 
-    return result.rows[0];
+    // Return with role_type for compatibility
+    const created = result.rows[0];
+    const roleInfo = await db.query("SELECT role_type FROM role WHERE role_id = $1", [created.role_id]);
+    return {
+        ...created,
+        role_type: roleInfo.rows[0]?.role_type ?? roleType,
+    };
 };
 
 // PUT a user by id
 export const updateUser = async (id, data) => {
-    const allowedFields = ["email", "first_name", "last_name", "birth_date", "gender_code", "role_type", "is_active"];
+    // Allow updating role via role_type (converted to role_id) or directly role_id
+    if (data.role_type) {
+        const roleRes = await db.query("SELECT role_id FROM role WHERE role_type = $1 LIMIT 1", [data.role_type]);
+        data.role_id = roleRes.rows[0]?.role_id ?? data.role_id;
+        delete data.role_type;
+    }
+
+    const allowedFields = ["email", "first_name", "last_name", "birth_date", "gender_code", "role_id", "is_active"];
     const updates = [];
     const params = [];
     let paramIndex = 1;

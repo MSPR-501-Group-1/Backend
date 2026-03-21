@@ -5,7 +5,10 @@ import { v4 as uuidv4 } from "uuid";
 // LOGIN - Log the user in (check email / password / account disabled)
 export const login = async (email, password) => {
     const result = await db.query(
-        "SELECT * FROM user_ WHERE email = $1",
+        `SELECT u.*, r.role_type
+         FROM user_ u
+         LEFT JOIN role r ON u.role_id = r.role_id
+         WHERE u.email = $1`,
         [email]
     );
 
