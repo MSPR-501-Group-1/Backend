@@ -3,8 +3,10 @@ import * as userMetricsService from "../../services/userService/userMetrics.serv
 // Get all users Metrics
 export const getAllUsersMetrics = async (req, res) => {
     try {
-        // Récupérer les métriques de tous les utilisateurs
-        const result = await userMetricsService.getAllUsersMetrics();
+        // Accept a `range` query param to filter data: '7d' | '30d' | '90d'
+        const { range } = req.query;
+        // Récupérer les métriques de tous les utilisateurs (optionnellement filtrées)
+        const result = await userMetricsService.getAllUsersMetrics(range);
 
         res.status(200).json({
             success: true,
