@@ -1,7 +1,7 @@
 import { db } from "../../db.js";
 
-// GET all users metrics
-export const getAllUsersMetrics = async (range = '30d') => {
+// GET fitness metrics for analytics pages
+export const getFitnessMetrics = async (range = '30d') => {
 
     // Accept only allowed ranges to avoid SQL injection
     const allowed = {
@@ -12,6 +12,15 @@ export const getAllUsersMetrics = async (range = '30d') => {
 
     const interval = allowed[range] ?? allowed['30d'];
 
+    const anchorDateQuery = `
+        SELECT COALESCE(MAX(start_at), now()) AS anchor_date
+        FROM workout_session
+        WHERE start_at IS NOT NULL;
+    `;
+
+    const anchorDateResult = await db.query(anchorDateQuery);
+    const anchorDate = anchorDateResult.rows[0]?.anchor_date ?? new Date().toISOString();
+
     // Récupération du graphique minutes d'activité par jour (filtré)
     // total_minutes = SUM(duration in minutes) computed from end_at - start_at
     const activityMinutesQuery = `
@@ -21,12 +30,12 @@ export const getAllUsersMetrics = async (range = '30d') => {
         FROM workout_session
         WHERE start_at IS NOT NULL
           AND end_at IS NOT NULL
-          AND start_at >= now() - $1::interval
+                    AND start_at >= $2::timestamptz - $1::interval
         GROUP BY (date_trunc('day', start_at) AT TIME ZONE 'UTC')
         ORDER BY jour DESC;
     `;
 
-    const result = await db.query(activityMinutesQuery, [interval]);
+    const result = await db.query(activityMinutesQuery, [interval, anchorDate]);
 
     // Récupération de la moyenne du nombre de session par semaine (sur la période)
     const sessionQuery = `
@@ -36,12 +45,12 @@ export const getAllUsersMetrics = async (range = '30d') => {
             SELECT date_trunc('week', start_at) AS week_start, COUNT(*) AS week_count
             FROM workout_session
             WHERE start_at IS NOT NULL
-              AND start_at >= now() - $1::interval
+                            AND start_at >= $2::timestamptz - $1::interval
             GROUP BY week_start
         ) t;
     `;
 
-    const sessionResult = await db.query(sessionQuery, [interval]);
+    const sessionResult = await db.query(sessionQuery, [interval, anchorDate]);
 
     // Récupération de la durée moyenne des sessions (sur la période)
     const averageDurationQuery = `
@@ -50,24 +59,24 @@ export const getAllUsersMetrics = async (range = '30d') => {
         FROM workout_session
         WHERE start_at IS NOT NULL
           AND end_at IS NOT NULL
-          AND start_at >= now() - $1::interval;
+            AND start_at >= $2::timestamptz - $1::interval;
     `;
 
-    const averageDurationResult = await db.query(averageDurationQuery, [interval]);
+    const averageDurationResult = await db.query(averageDurationQuery, [interval, anchorDate]);
 
     // Répartition par catégorie d'exercice (nombre d'exercices par catégorie)
-        const distributionQuery = `
+    const distributionQuery = `
                 SELECT e.body_part_target AS category, COUNT(*)::integer AS count
                 FROM workout_session_exercise wse
                 JOIN workout_session ws ON wse.session_id = ws.session_id
                 JOIN exercise e ON wse.exercise_id = e.exercise_id
                 WHERE ws.start_at IS NOT NULL
-                    AND ws.start_at >= now() - $1::interval
+                    AND ws.start_at >= $2::timestamptz - $1::interval
                 GROUP BY e.body_part_target
                 ORDER BY count DESC;
         `;
 
-    const distributionResult = await db.query(distributionQuery, [interval]);
+    const distributionResult = await db.query(distributionQuery, [interval, anchorDate]);
 
     return {
         dailyMetrics: result.rows,
@@ -76,3 +85,6 @@ export const getAllUsersMetrics = async (range = '30d') => {
         distribution: distributionResult.rows,
     };
 };
+
+// Backward-compatible alias used by the existing /usersMetrics route.
+export const getAllUsersMetrics = async (range = '30d') => getFitnessMetrics(range);
