@@ -8,18 +8,15 @@ export const getFitnessMetrics = async (range = '30d') => {
         '7d': "7 days",
         '30d': "30 days",
         '90d': "90 days",
+        'all': null,
     };
 
-    const interval = allowed[range] ?? allowed['30d'];
-
-    const anchorDateQuery = `
-        SELECT COALESCE(MAX(start_at), now()) AS anchor_date
-        FROM workout_session
-        WHERE start_at IS NOT NULL;
-    `;
-
-    const anchorDateResult = await db.query(anchorDateQuery);
-    const anchorDate = anchorDateResult.rows[0]?.anchor_date ?? new Date().toISOString();
+    const normalizedRange = Object.prototype.hasOwnProperty.call(allowed, range) ? range : '30d';
+    const interval = allowed[normalizedRange];
+    const hasDateFilter = interval !== null;
+    const dateFilter = hasDateFilter ? 'AND start_at >= now() - $1::interval' : '';
+    const dateFilterWs = hasDateFilter ? 'AND ws.start_at >= now() - $1::interval' : '';
+    const params = hasDateFilter ? [interval] : [];
 
     // Récupération du graphique minutes d'activité par jour (filtré)
     // total_minutes = SUM(duration in minutes) computed from end_at - start_at
@@ -30,12 +27,12 @@ export const getFitnessMetrics = async (range = '30d') => {
         FROM workout_session
         WHERE start_at IS NOT NULL
           AND end_at IS NOT NULL
-                    AND start_at >= $2::timestamptz - $1::interval
+          ${dateFilter}
         GROUP BY (date_trunc('day', start_at) AT TIME ZONE 'UTC')
         ORDER BY jour DESC;
     `;
 
-    const result = await db.query(activityMinutesQuery, [interval, anchorDate]);
+    const result = await db.query(activityMinutesQuery, params);
 
     // Récupération de la moyenne du nombre de session par semaine (sur la période)
     const sessionQuery = `
@@ -45,12 +42,12 @@ export const getFitnessMetrics = async (range = '30d') => {
             SELECT date_trunc('week', start_at) AS week_start, COUNT(*) AS week_count
             FROM workout_session
             WHERE start_at IS NOT NULL
-                            AND start_at >= $2::timestamptz - $1::interval
+              ${dateFilter}
             GROUP BY week_start
         ) t;
     `;
 
-    const sessionResult = await db.query(sessionQuery, [interval, anchorDate]);
+    const sessionResult = await db.query(sessionQuery, params);
 
     // Récupération de la durée moyenne des sessions (sur la période)
     const averageDurationQuery = `
@@ -59,10 +56,10 @@ export const getFitnessMetrics = async (range = '30d') => {
         FROM workout_session
         WHERE start_at IS NOT NULL
           AND end_at IS NOT NULL
-            AND start_at >= $2::timestamptz - $1::interval;
+                    ${dateFilter};
     `;
 
-    const averageDurationResult = await db.query(averageDurationQuery, [interval, anchorDate]);
+    const averageDurationResult = await db.query(averageDurationQuery, params);
 
     // Répartition par catégorie d'exercice (nombre d'exercices par catégorie)
     const distributionQuery = `
@@ -71,12 +68,12 @@ export const getFitnessMetrics = async (range = '30d') => {
                 JOIN workout_session ws ON wse.session_id = ws.session_id
                 JOIN exercise e ON wse.exercise_id = e.exercise_id
                 WHERE ws.start_at IS NOT NULL
-                    AND ws.start_at >= $2::timestamptz - $1::interval
+                    ${dateFilterWs}
                 GROUP BY e.body_part_target
                 ORDER BY count DESC;
         `;
 
-    const distributionResult = await db.query(distributionQuery, [interval, anchorDate]);
+    const distributionResult = await db.query(distributionQuery, params);
 
     return {
         dailyMetrics: result.rows,

@@ -22,7 +22,7 @@ export const getFitnessMetrics = async (req, res) => {
 // Get all users Metrics
 export const getAllUsersMetrics = async (req, res) => {
     try {
-        // Accept a `range` query param to filter data: '7d' | '30d' | '90d'
+        // Accept a `range` query param to filter data: '7d' | '30d' | '90d' | 'all'
         const { range } = req.query;
         // Récupérer les métriques de tous les utilisateurs (optionnellement filtrées)
         const result = await userMetricsService.getAllUsersMetrics(range);
