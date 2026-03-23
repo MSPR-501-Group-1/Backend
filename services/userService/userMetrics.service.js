@@ -1,22 +1,24 @@
 import { db } from "../../db.js";
+import {
+    RANGE_INTERVALS,
+    normalizeRange,
+    hasBoundedRange,
+    trendForVolume,
+    currentWindowSql,
+    previousWindowSql,
+} from "../analyticsService/analytics.utils.js";
 
 // GET fitness metrics for analytics pages
 export const getFitnessMetrics = async (range = '30d') => {
+    const normalizedRange = normalizeRange(range, '30d');
+    const hasDateFilter = hasBoundedRange(normalizedRange);
+    const interval = RANGE_INTERVALS[normalizedRange];
+    const rangeDays = normalizedRange === '7d' ? 7 : normalizedRange === '30d' ? 30 : normalizedRange === '90d' ? 90 : null;
+    const intervalParams = hasDateFilter ? [interval] : [];
+    const sessionParams = hasDateFilter ? [interval, rangeDays] : [];
 
-    // Accept only allowed ranges to avoid SQL injection
-    const allowed = {
-        '7d': "7 days",
-        '30d': "30 days",
-        '90d': "90 days",
-        'all': null,
-    };
-
-    const normalizedRange = Object.prototype.hasOwnProperty.call(allowed, range) ? range : '30d';
-    const interval = allowed[normalizedRange];
-    const hasDateFilter = interval !== null;
-    const dateFilter = hasDateFilter ? 'AND start_at >= now() - $1::interval' : '';
-    const dateFilterWs = hasDateFilter ? 'AND ws.start_at >= now() - $1::interval' : '';
-    const params = hasDateFilter ? [interval] : [];
+    const dateFilter = currentWindowSql('start_at', normalizedRange);
+    const dateFilterWs = currentWindowSql('ws.start_at', normalizedRange);
 
     // Récupération du graphique minutes d'activité par jour (filtré)
     // total_minutes = SUM(duration in minutes) computed from end_at - start_at
@@ -32,22 +34,29 @@ export const getFitnessMetrics = async (range = '30d') => {
         ORDER BY jour DESC;
     `;
 
-    const result = await db.query(activityMinutesQuery, params);
+    const result = await db.query(activityMinutesQuery, intervalParams);
 
-    // Récupération de la moyenne du nombre de session par semaine (sur la période)
-    const sessionQuery = `
-        SELECT
-            AVG(week_count)::numeric(10,2) AS avg_sessions_per_week
-        FROM (
-            SELECT date_trunc('week', start_at) AS week_start, COUNT(*) AS week_count
+    // For bounded ranges, compute a true rolling weekly rate to avoid partial ISO week bias.
+    const sessionQuery = hasDateFilter
+        ? `
+            SELECT
+                ROUND((COUNT(*)::numeric / NULLIF($2::numeric, 0)) * 7, 2) AS avg_sessions_per_week
             FROM workout_session
             WHERE start_at IS NOT NULL
-              ${dateFilter}
-            GROUP BY week_start
-        ) t;
-    `;
+              ${dateFilter};
+        `
+        : `
+            SELECT
+                AVG(week_count)::numeric(10,2) AS avg_sessions_per_week
+            FROM (
+                SELECT date_trunc('week', start_at) AS week_start, COUNT(*) AS week_count
+                FROM workout_session
+                WHERE start_at IS NOT NULL
+                GROUP BY week_start
+            ) t;
+        `;
 
-    const sessionResult = await db.query(sessionQuery, params);
+    const sessionResult = await db.query(sessionQuery, sessionParams);
 
     // Récupération de la durée moyenne des sessions (sur la période)
     const averageDurationQuery = `
@@ -59,7 +68,7 @@ export const getFitnessMetrics = async (range = '30d') => {
                     ${dateFilter};
     `;
 
-    const averageDurationResult = await db.query(averageDurationQuery, params);
+    const averageDurationResult = await db.query(averageDurationQuery, intervalParams);
 
     // Répartition par catégorie d'exercice (nombre d'exercices par catégorie)
     const distributionQuery = `
@@ -73,12 +82,83 @@ export const getFitnessMetrics = async (range = '30d') => {
                 ORDER BY count DESC;
         `;
 
-    const distributionResult = await db.query(distributionQuery, params);
+    const distributionResult = await db.query(distributionQuery, intervalParams);
+
+    let previousAverageSessionsPerWeek = null;
+    let previousAverageDuration = null;
+    let previousTotalMinutes = null;
+
+    if (hasDateFilter) {
+        const previousSessionQuery = `
+            SELECT
+                ROUND((COUNT(*)::numeric / NULLIF($2::numeric, 0)) * 7, 2) AS avg_sessions_per_week
+            FROM workout_session
+            WHERE start_at IS NOT NULL
+              ${previousWindowSql('start_at', normalizedRange)};
+        `;
+
+        const previousAverageDurationQuery = `
+            SELECT
+                AVG(EXTRACT(EPOCH FROM (end_at - start_at)) / 60) AS average_duration
+            FROM workout_session
+            WHERE start_at IS NOT NULL
+              AND end_at IS NOT NULL
+              ${previousWindowSql('start_at', normalizedRange)};
+        `;
+
+        const previousTotalMinutesQuery = `
+            SELECT
+                COALESCE(SUM(EXTRACT(EPOCH FROM (end_at - start_at)) / 60), 0) AS total_minutes
+            FROM workout_session
+            WHERE start_at IS NOT NULL
+              AND end_at IS NOT NULL
+              ${previousWindowSql('start_at', normalizedRange)};
+        `;
+
+        const [prevSessions, prevDuration, prevMinutes] = await Promise.all([
+            db.query(previousSessionQuery, sessionParams),
+            db.query(previousAverageDurationQuery, intervalParams),
+            db.query(previousTotalMinutesQuery, intervalParams),
+        ]);
+
+        previousAverageSessionsPerWeek = prevSessions.rows[0]?.avg_sessions_per_week ?? null;
+        previousAverageDuration = prevDuration.rows[0]?.average_duration ?? null;
+        previousTotalMinutes = prevMinutes.rows[0]?.total_minutes ?? null;
+    }
+
+    const currentAverageSessionsPerWeek = sessionResult.rows[0]?.avg_sessions_per_week ?? null;
+    const currentAverageDuration = averageDurationResult.rows[0]?.average_duration ?? null;
+    const currentTotalMinutes = result.rows.reduce((sum, row) => sum + Number(row.total_minutes ?? 0), 0);
 
     return {
         dailyMetrics: result.rows,
-        averageSessionsPerWeek: sessionResult.rows[0]?.avg_sessions_per_week ?? null,
-        averageDuration: averageDurationResult.rows[0]?.average_duration ?? null,
+        averageSessionsPerWeek: currentAverageSessionsPerWeek,
+        averageSessionsPerWeekTrend: trendForVolume(
+            normalizedRange,
+            currentAverageSessionsPerWeek,
+            previousAverageSessionsPerWeek
+        ),
+        previousAverageSessionsPerWeek: hasDateFilter
+            ? Number(previousAverageSessionsPerWeek ?? 0)
+            : null,
+        averageDuration: currentAverageDuration,
+        averageDurationTrend: trendForVolume(
+            normalizedRange,
+            currentAverageDuration,
+            previousAverageDuration
+        ),
+        previousAverageDuration: hasDateFilter
+            ? Number(previousAverageDuration ?? 0)
+            : null,
+        totalMinutes: currentTotalMinutes,
+        totalMinutesTrend: trendForVolume(
+            normalizedRange,
+            currentTotalMinutes,
+            previousTotalMinutes
+        ),
+        previousTotalMinutes: hasDateFilter
+            ? Number(previousTotalMinutes ?? 0)
+            : null,
         distribution: distributionResult.rows,
     };
 };
