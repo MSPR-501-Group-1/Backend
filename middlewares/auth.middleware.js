@@ -21,17 +21,17 @@ export const generateToken = (user) => {
 export const authenticate = (req, res, next) => {
     try {
         const authHeader = req.headers.authorization;
- 
+
         if (!authHeader || !authHeader.startsWith("Bearer ")) {
             return res.status(401).json({
                 success: false,
                 message: "Token d'authentification requis"
             });
         }
- 
+
         const token = authHeader.split(" ")[1];
         const decoded = jwt.verify(token, JWT_SECRET);
- 
+
         req.user = decoded;
         next();
     } catch (error) {
@@ -47,7 +47,7 @@ export const authenticate = (req, res, next) => {
         });
     }
 };
- 
+
 // Verifies that req.user exists and has one of the allowed roles.
 // Call with no args to just require authentication: requireRole()
 // Must run after authenticate.
@@ -66,17 +66,17 @@ export const requireRole = (...allowedRoles) => {
                 message: "Accès non autorisé pour ce rôle"
             });
         }
- 
+
         next();
     };
 };
- 
+
 // Allows the resource owner OR an admin to proceed.
 // Must run after authenticate.
 export const requireOwnerOrAdmin = (req, res, next) => {
     const isAdmin = req.user?.role_type === "ADMIN";
     const isOwner = req.user?.user_id === req.params.id;
- 
+
     if (!isAdmin && !isOwner) {
         return res.status(403).json({
             success: false,
@@ -85,22 +85,22 @@ export const requireOwnerOrAdmin = (req, res, next) => {
     }
     next();
 };
- 
+
 // Selects the appropriate update schema based on the user's role.
 // Must run after authenticate.
 export const selectUpdateSchema = (req, res, next) => {
     const schema = req.user?.role_type === "ADMIN"
         ? adminUpdateUserSchema
         : ownerUpdateUserSchema;
- 
+
     return validate(schema)(req, res, next);
 };
- 
+
 // Validates req.body against a Zod schema.
 export const validate = (schema) => {
     return (req, res, next) => {
         try {
-            schema.parse(req.body);
+            req.body = schema.parse(req.body);
             next();
         } catch (error) {
             if (error.name === "ZodError" || error.errors) {

@@ -34,6 +34,10 @@ export const getUserById = async (id) => {
 export const createUser = async (data) => {
     const { email, password, first_name, last_name, birth_date, gender_code, role_type, is_active } = data;
 
+    if (!password) {
+        throw new Error("PASSWORD_REQUIRED");
+    }
+
     // Vérification si l'email existe déjà
     const existingUser = await db.query(
         "SELECT user_id FROM user_ WHERE email = $1",
@@ -118,11 +122,15 @@ export const updateUser = async (id, data) => {
 
     const result = await db.query(
         `UPDATE user_ SET ${updates.join(", ")} WHERE user_id = $${paramIndex}
-         RETURNING user_id, email, first_name, last_name, birth_date, gender_code, role_type, created_at, is_active`,
+         RETURNING user_id`,
         params
     );
 
-    return result.rows[0] || null;
+    if (!result.rows[0]) {
+        return null;
+    }
+
+    return getUserById(id);
 };
 
 // Désactivation d'un utilisateur (soft delete)

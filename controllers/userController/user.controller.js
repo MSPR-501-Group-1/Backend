@@ -62,6 +62,12 @@ export const createUser = async (req, res) => {
                 message: "Cet email est déjà utilisé"
             });
         }
+        if (error.message === "PASSWORD_REQUIRED") {
+            return res.status(400).json({
+                success: false,
+                message: "Le mot de passe est requis"
+            });
+        }
         console.error("Erreur createUser:", error);
         res.status(500).json({
             success: false,
