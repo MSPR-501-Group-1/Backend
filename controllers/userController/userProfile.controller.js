@@ -48,6 +48,12 @@ export const createUserProfile = async (req, res) => {
                 message: "Utilisateur non trouvé"
             });
         }
+        if (error.message === "GOAL_NOT_FOUND") {
+            return res.status(400).json({
+                success: false,
+                message: "L'objectif de santé spécifié n'existe pas"
+            });
+        }
         console.error("Erreur createUserProfile:", error);
         res.status(500).json({
             success: false,
@@ -83,7 +89,7 @@ export const updateUserProfile = async (req, res) => {
                 message: "Aucun champ à mettre à jour"
             });
         }
-        if (error.message === "INVALID_GOAL") {
+        if (error.message === "GOAL_NOT_FOUND") {
             return res.status(400).json({
                 success: false,
                 message: "L'objectif de santé spécifié n'existe pas"
