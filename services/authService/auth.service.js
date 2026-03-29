@@ -1,6 +1,11 @@
 import { db } from "../../db.js";
 import bcrypt from "bcryptjs";
-import { v4 as uuidv4 } from "uuid";
+
+const DEFAULT_SALT_ROUNDS = 10;
+const parsedSaltRounds = Number(process.env.BCRYPT_SALT_ROUNDS ?? process.env.SALT_ROUNDS ?? DEFAULT_SALT_ROUNDS);
+const SALT_ROUNDS = Number.isInteger(parsedSaltRounds) && parsedSaltRounds >= 4
+    ? parsedSaltRounds
+    : DEFAULT_SALT_ROUNDS;
 
 // LOGIN - Log the user in (check email / password / account disabled)
 export const login = async (email, password) => {
@@ -51,7 +56,7 @@ export const changePassword = async (user_id, currentPassword, newPassword) => {
     const newPasswordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
 
     await db.query(
-        "UPDATE user_ SET password_hash = $1 WHERE user_id = $2",
+        "UPDATE user_ SET password_hash = $1, updated_at = NOW() WHERE user_id = $2",
         [newPasswordHash, user_id]
     );
 

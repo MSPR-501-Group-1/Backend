@@ -3,12 +3,22 @@ import pg from "pg";
 
 const { Pool } = pg;
 
+const pickEnv = (...keys) => {
+    for (const key of keys) {
+        const value = process.env[key];
+        if (value !== undefined && value !== "") {
+            return value;
+        }
+    }
+    return undefined;
+};
+
 export const db = new Pool({
-    host: process.env.POSTGRES_HOST,
-    port: process.env.POSTGRES_PORT,
-    database: process.env.POSTGRES_DB,
-    user: process.env.POSTGRES_USER,
-    password: process.env.POSTGRES_PASSWORD
+    host: pickEnv("DB_HOST", "POSTGRES_HOST", "PGHOST", "localhost"),
+    port: Number(pickEnv("DB_PORT", "POSTGRES_PORT", "PGPORT", "5432")),
+    database: pickEnv("DB_NAME", "POSTGRES_DB", "PGDATABASE"),
+    user: pickEnv("DB_USER", "POSTGRES_USER", "PGUSER"),
+    password: pickEnv("DB_PASSWORD", "POSTGRES_PASSWORD", "PGPASSWORD")
 });
 
 // Test de connexion

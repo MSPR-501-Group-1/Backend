@@ -9,9 +9,7 @@ export const register = async (req, res) => {
         const userData = req.body;
         const user = await userService.createUser(userData);
 
-        const userProfile = await userProfileService.createUserProfile({
-            user_id: user.user_id,
-        });
+        await userProfileService.createUserProfile(user.user_id, {});
 
         res.status(201).json({
             success: true,
