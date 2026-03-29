@@ -1,4 +1,5 @@
 import * as userService from "../../services/userService/user.service.js";
+import * as authService from "../../services/authService/auth.service.js";
 
 // Get all users
 export const getUsers = async (req, res) => {
@@ -180,8 +181,8 @@ export const changePassword = async (req, res) => {
             return res.status(400).json({ success: false, message: "Champs de mot de passe manquants" });
         }
 
-        // userService will throw errors for not found / invalid password
-        await userService.changePassword(id, currentPassword, newPassword);
+        // authService will throw errors for not found / invalid password
+        await authService.changePassword(id, currentPassword, newPassword);
 
         res.status(200).json({ success: true, message: "Mot de passe changé avec succès" });
     } catch (error) {
