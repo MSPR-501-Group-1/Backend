@@ -2,10 +2,26 @@ import { db } from "../../db.js";
 import bcrypt from "bcryptjs";
 
 const DEFAULT_SALT_ROUNDS = 10;
-const parsedSaltRounds = Number(process.env.BCRYPT_SALT_ROUNDS ?? process.env.SALT_ROUNDS ?? DEFAULT_SALT_ROUNDS);
-const SALT_ROUNDS = Number.isInteger(parsedSaltRounds) && parsedSaltRounds >= 4
-    ? parsedSaltRounds
-    : DEFAULT_SALT_ROUNDS;
+const MIN_SALT_ROUNDS = 4;
+const MAX_SALT_ROUNDS = 31;
+
+const resolveSaltRounds = () => {
+    const parsedSaltRounds = Number(
+        process.env.BCRYPT_SALT_ROUNDS ?? process.env.SALT_ROUNDS ?? DEFAULT_SALT_ROUNDS
+    );
+
+    if (!Number.isInteger(parsedSaltRounds)) {
+        return DEFAULT_SALT_ROUNDS;
+    }
+
+    if (parsedSaltRounds < MIN_SALT_ROUNDS || parsedSaltRounds > MAX_SALT_ROUNDS) {
+        return DEFAULT_SALT_ROUNDS;
+    }
+
+    return parsedSaltRounds;
+};
+
+const SALT_ROUNDS = resolveSaltRounds();
 
 // LOGIN - Log the user in (check email / password / account disabled)
 export const login = async (email, password) => {
