@@ -19,6 +19,11 @@ const monthLabel = (dateLike) => {
     return d.toLocaleString("fr-FR", { month: "short" });
 };
 
+const toNumber = (value, fallback = 0) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+};
+
 const activeUsersLabel = (range) => {
     if (range === '7d') return 'Utilisateurs actifs / semaine';
     if (range === '90d') return 'Utilisateurs actifs / trimestre';
@@ -512,5 +517,362 @@ export const getBusinessKpis = async (range = '30d') => {
         retentionCohorts,
         featureAdoption,
         revenueVsTarget,
+    };
+};
+
+export const getNutritionAnalytics = async (range = '30d') => {
+    const normalizedRange = normalizeRange(range, '30d');
+    const hasRange = hasBoundedRange(normalizedRange);
+    const interval = RANGE_INTERVALS[normalizedRange];
+    const params = hasRange ? [interval] : [];
+
+    const mealFilterCurrent = currentWindowSql('m.consumed_at', normalizedRange);
+    const mealFilterPrevious = previousWindowSql('m.consumed_at', normalizedRange);
+
+    const nutritionAggregateQuery = (dateFilterSql) => `
+        WITH base_meals AS (
+            SELECT
+                m.meal_id,
+                m.consumed_at,
+                COALESCE(m.calories_consumed, 0)::numeric AS calories
+            FROM meal m
+            WHERE m.consumed_at IS NOT NULL
+              ${dateFilterSql}
+        ),
+        meal_stats AS (
+            SELECT
+                COUNT(*)::numeric AS meals_count,
+                COUNT(DISTINCT date(consumed_at))::numeric AS active_days,
+                COALESCE(SUM(calories), 0)::numeric AS total_calories
+            FROM base_meals
+        ),
+        macro_stats AS (
+            SELECT
+                COALESCE(SUM((COALESCE(i.protein_g, 0)::numeric * COALESCE(mi.quantity, 0)::numeric) / 100), 0)::numeric AS protein_g,
+                COALESCE(SUM((COALESCE(i.carbs_g, 0)::numeric * COALESCE(mi.quantity, 0)::numeric) / 100), 0)::numeric AS carbs_g,
+                COALESCE(SUM((COALESCE(i.fat_g, 0)::numeric * COALESCE(mi.quantity, 0)::numeric) / 100), 0)::numeric AS fat_g
+            FROM meal m
+            JOIN meal_ingredient mi ON mi.meal_id = m.meal_id
+            JOIN ingredient i ON i.ingredient_id = mi.ingredient_id
+            WHERE m.consumed_at IS NOT NULL
+              ${dateFilterSql}
+        )
+        SELECT
+            meal_stats.meals_count,
+            meal_stats.active_days,
+            meal_stats.total_calories,
+            CASE
+                WHEN meal_stats.active_days = 0 THEN 0
+                ELSE ROUND(meal_stats.total_calories / meal_stats.active_days, 1)
+            END AS avg_daily_calories,
+            CASE
+                WHEN meal_stats.meals_count = 0 THEN 0
+                ELSE ROUND(meal_stats.total_calories / meal_stats.meals_count, 1)
+            END AS avg_calories_per_meal,
+            ROUND(macro_stats.protein_g, 1) AS protein_g,
+            ROUND(macro_stats.carbs_g, 1) AS carbs_g,
+            ROUND(macro_stats.fat_g, 1) AS fat_g
+        FROM meal_stats
+        CROSS JOIN macro_stats;
+    `;
+
+    const [timeSeriesResult, currentAggResult, previousAggResult, distributionResult] = await Promise.all([
+        db.query(`
+            SELECT
+                to_char(date_trunc('day', m.consumed_at), 'YYYY-MM-DD') AS date,
+                ROUND(SUM(COALESCE(m.calories_consumed, 0))::numeric, 1) AS value
+            FROM meal m
+            WHERE m.consumed_at IS NOT NULL
+              ${mealFilterCurrent}
+            GROUP BY date_trunc('day', m.consumed_at)
+            ORDER BY date;
+        `, params),
+        db.query(nutritionAggregateQuery(mealFilterCurrent), params),
+        hasRange
+            ? db.query(nutritionAggregateQuery(mealFilterPrevious), params)
+            : Promise.resolve({ rows: [] }),
+        db.query(`
+            SELECT
+                CASE
+                    WHEN EXTRACT(HOUR FROM m.consumed_at) BETWEEN 5 AND 10 THEN 'Petit-déjeuner'
+                    WHEN EXTRACT(HOUR FROM m.consumed_at) BETWEEN 11 AND 14 THEN 'Déjeuner'
+                    WHEN EXTRACT(HOUR FROM m.consumed_at) BETWEEN 18 AND 22 THEN 'Dîner'
+                    ELSE 'Collation'
+                END AS name,
+                ROUND(SUM(COALESCE(m.calories_consumed, 0))::numeric, 1) AS value
+            FROM meal m
+            WHERE m.consumed_at IS NOT NULL
+              ${mealFilterCurrent}
+            GROUP BY name
+            ORDER BY value DESC;
+        `, params),
+    ]);
+
+    const current = currentAggResult.rows[0] ?? {};
+    const previous = previousAggResult.rows[0] ?? {};
+
+    const currentAvgDailyCalories = toNumber(current.avg_daily_calories);
+    const currentAvgCaloriesPerMeal = toNumber(current.avg_calories_per_meal);
+    const currentProteinG = toNumber(current.protein_g);
+    const currentMealsCount = toNumber(current.meals_count);
+    const currentCarbsG = toNumber(current.carbs_g);
+    const currentFatG = toNumber(current.fat_g);
+
+    const previousAvgDailyCalories = hasRange ? toNumber(previous.avg_daily_calories) : null;
+    const previousAvgCaloriesPerMeal = hasRange ? toNumber(previous.avg_calories_per_meal) : null;
+    const previousProteinG = hasRange ? toNumber(previous.protein_g) : null;
+    const previousMealsCount = hasRange ? toNumber(previous.meals_count) : null;
+
+    const timeSeries = timeSeriesResult.rows.map((row) => ({
+        date: String(row.date),
+        value: toNumber(row.value),
+    }));
+
+    const kpis = [
+        {
+            id: 'avg-calories-day',
+            label: 'Calories moy / jour',
+            description: 'Moyenne des calories consommées par jour sur la fenêtre sélectionnée.',
+            value: round1(currentAvgDailyCalories),
+            unit: 'kcal',
+            comparedValue: hasRange ? round1(previousAvgDailyCalories ?? 0) : null,
+            comparedUnit: hasRange ? 'kcal' : undefined,
+            trend: trendForVolume(normalizedRange, currentAvgDailyCalories, previousAvgDailyCalories),
+            trendUnit: '%',
+            status: 'success',
+        },
+        {
+            id: 'avg-calories-meal',
+            label: 'Calories moy / repas',
+            description: 'Charge calorique moyenne par repas enregistré.',
+            value: round1(currentAvgCaloriesPerMeal),
+            unit: 'kcal',
+            comparedValue: hasRange ? round1(previousAvgCaloriesPerMeal ?? 0) : null,
+            comparedUnit: hasRange ? 'kcal' : undefined,
+            trend: trendForVolume(normalizedRange, currentAvgCaloriesPerMeal, previousAvgCaloriesPerMeal),
+            trendUnit: '%',
+            status: 'success',
+        },
+        {
+            id: 'protein-total',
+            label: 'Protéines totales',
+            description: 'Volume total de protéines estimé à partir des ingrédients des repas.',
+            value: round1(currentProteinG),
+            unit: 'g',
+            comparedValue: hasRange ? round1(previousProteinG ?? 0) : null,
+            comparedUnit: hasRange ? 'g' : undefined,
+            trend: trendForVolume(normalizedRange, currentProteinG, previousProteinG),
+            trendUnit: '%',
+            status: 'success',
+        },
+        {
+            id: 'meals-count',
+            label: 'Repas enregistrés',
+            description: 'Nombre de repas saisis sur la période analysée.',
+            value: currentMealsCount,
+            comparedValue: hasRange ? previousMealsCount : null,
+            trend: trendForVolume(normalizedRange, currentMealsCount, previousMealsCount),
+            trendUnit: '%',
+            status: 'success',
+        },
+    ];
+
+    const breakdown = [
+        { name: 'Protéines', value: round1(currentProteinG), color: '#16A34A' },
+        { name: 'Glucides', value: round1(currentCarbsG), color: '#F59E0B' },
+        { name: 'Lipides', value: round1(currentFatG), color: '#2563EB' },
+    ];
+
+    const distribution = distributionResult.rows.map((row, index) => ({
+        name: String(row.name),
+        value: toNumber(row.value),
+        color: PALETTE[index % PALETTE.length],
+    }));
+
+    return {
+        kpis,
+        timeSeries,
+        breakdown,
+        distribution,
+    };
+};
+
+export const getBiometricAnalytics = async (range = '30d') => {
+    const normalizedRange = normalizeRange(range, '30d');
+    const hasRange = hasBoundedRange(normalizedRange);
+    const interval = RANGE_INTERVALS[normalizedRange];
+    const params = hasRange ? [interval] : [];
+
+    const metricFilterCurrent = currentWindowSql('um.recorded_date', normalizedRange);
+    const metricFilterPrevious = previousWindowSql('um.recorded_date', normalizedRange);
+
+    const biometricAggregateQuery = (dateFilterSql) => `
+        SELECT
+            COUNT(*)::numeric AS entries_count,
+            ROUND(AVG(um.weight_kg)::numeric, 2) AS avg_weight,
+            ROUND(AVG(um.heart_rate_avg)::numeric, 1) AS avg_heart_rate,
+            ROUND(AVG(um.sleep_hours)::numeric, 1) AS avg_sleep_hours,
+            ROUND(AVG(um.body_fat_pourcentage)::numeric, 1) AS avg_body_fat
+        FROM user_metrics um
+        WHERE um.recorded_date IS NOT NULL
+          ${dateFilterSql};
+    `;
+
+    const [timeSeriesResult, currentAggResult, previousAggResult, heartRateZonesResult, sleepZonesResult] = await Promise.all([
+        db.query(`
+            SELECT
+                to_char(date_trunc('day', um.recorded_date), 'YYYY-MM-DD') AS date,
+                ROUND(AVG(COALESCE(um.weight_kg, 0))::numeric, 2) AS value
+            FROM user_metrics um
+            WHERE um.recorded_date IS NOT NULL
+              AND um.weight_kg IS NOT NULL
+              ${metricFilterCurrent}
+            GROUP BY date_trunc('day', um.recorded_date)
+            ORDER BY date;
+        `, params),
+        db.query(biometricAggregateQuery(metricFilterCurrent), params),
+        hasRange
+            ? db.query(biometricAggregateQuery(metricFilterPrevious), params)
+            : Promise.resolve({ rows: [] }),
+        db.query(`
+            SELECT name, value
+            FROM (
+                SELECT
+                    CASE
+                        WHEN um.heart_rate_avg < 60 THEN '<60 bpm'
+                        WHEN um.heart_rate_avg < 70 THEN '60-69 bpm'
+                        WHEN um.heart_rate_avg < 80 THEN '70-79 bpm'
+                        ELSE '>=80 bpm'
+                    END AS name,
+                    COUNT(*)::numeric AS value,
+                    CASE
+                        WHEN um.heart_rate_avg < 60 THEN 1
+                        WHEN um.heart_rate_avg < 70 THEN 2
+                        WHEN um.heart_rate_avg < 80 THEN 3
+                        ELSE 4
+                    END AS sort_order
+                FROM user_metrics um
+                WHERE um.recorded_date IS NOT NULL
+                  AND um.heart_rate_avg IS NOT NULL
+                  ${metricFilterCurrent}
+                GROUP BY name, sort_order
+            ) zones
+            ORDER BY zones.sort_order;
+        `, params),
+        db.query(`
+            SELECT name, value
+            FROM (
+                SELECT
+                    CASE
+                        WHEN um.sleep_hours < 6 THEN '<6 h'
+                        WHEN um.sleep_hours < 7 THEN '6-7 h'
+                        WHEN um.sleep_hours < 8 THEN '7-8 h'
+                        ELSE '>=8 h'
+                    END AS name,
+                    COUNT(*)::numeric AS value,
+                    CASE
+                        WHEN um.sleep_hours < 6 THEN 1
+                        WHEN um.sleep_hours < 7 THEN 2
+                        WHEN um.sleep_hours < 8 THEN 3
+                        ELSE 4
+                    END AS sort_order
+                FROM user_metrics um
+                WHERE um.recorded_date IS NOT NULL
+                  AND um.sleep_hours IS NOT NULL
+                  ${metricFilterCurrent}
+                GROUP BY name, sort_order
+            ) zones
+            ORDER BY zones.sort_order;
+        `, params),
+    ]);
+
+    const current = currentAggResult.rows[0] ?? {};
+    const previous = previousAggResult.rows[0] ?? {};
+
+    const currentAvgWeight = toNumber(current.avg_weight);
+    const currentAvgHeartRate = toNumber(current.avg_heart_rate);
+    const currentAvgSleepHours = toNumber(current.avg_sleep_hours);
+    const currentAvgBodyFat = toNumber(current.avg_body_fat);
+
+    const previousAvgWeight = hasRange ? toNumber(previous.avg_weight) : null;
+    const previousAvgHeartRate = hasRange ? toNumber(previous.avg_heart_rate) : null;
+    const previousAvgSleepHours = hasRange ? toNumber(previous.avg_sleep_hours) : null;
+    const previousAvgBodyFat = hasRange ? toNumber(previous.avg_body_fat) : null;
+
+    const timeSeries = timeSeriesResult.rows.map((row) => ({
+        date: String(row.date),
+        value: toNumber(row.value),
+    }));
+
+    const kpis = [
+        {
+            id: 'avg-weight',
+            label: 'Poids moyen',
+            description: 'Poids moyen observé sur les relevés biométriques de la période.',
+            value: round1(currentAvgWeight),
+            unit: 'kg',
+            comparedValue: hasRange ? round1(previousAvgWeight ?? 0) : null,
+            comparedUnit: hasRange ? 'kg' : undefined,
+            trend: trendForVolume(normalizedRange, currentAvgWeight, previousAvgWeight),
+            trendUnit: '%',
+            status: 'success',
+        },
+        {
+            id: 'avg-heart-rate',
+            label: 'Fréquence cardiaque moy',
+            description: 'Fréquence cardiaque moyenne au repos.',
+            value: round1(currentAvgHeartRate),
+            unit: 'bpm',
+            comparedValue: hasRange ? round1(previousAvgHeartRate ?? 0) : null,
+            comparedUnit: hasRange ? 'bpm' : undefined,
+            trend: trendForVolume(normalizedRange, currentAvgHeartRate, previousAvgHeartRate),
+            trendUnit: '%',
+            trendPositiveIsGood: false,
+            status: 'success',
+        },
+        {
+            id: 'avg-sleep-hours',
+            label: 'Sommeil moyen',
+            description: 'Nombre moyen d\'heures de sommeil par relevé.',
+            value: round1(currentAvgSleepHours),
+            unit: 'h',
+            comparedValue: hasRange ? round1(previousAvgSleepHours ?? 0) : null,
+            comparedUnit: hasRange ? 'h' : undefined,
+            trend: trendForVolume(normalizedRange, currentAvgSleepHours, previousAvgSleepHours),
+            trendUnit: '%',
+            status: 'success',
+        },
+        {
+            id: 'avg-body-fat',
+            label: 'Masse grasse moyenne',
+            description: 'Pourcentage moyen de masse grasse relevé.',
+            value: round1(currentAvgBodyFat),
+            unit: '%',
+            comparedValue: hasRange ? round1(previousAvgBodyFat ?? 0) : null,
+            comparedUnit: hasRange ? '%' : undefined,
+            trend: trendForVolume(normalizedRange, currentAvgBodyFat, previousAvgBodyFat),
+            trendUnit: '%',
+            trendPositiveIsGood: false,
+            status: 'success',
+        },
+    ];
+
+    const breakdown = heartRateZonesResult.rows.map((row, index) => ({
+        name: String(row.name),
+        value: toNumber(row.value),
+        color: PALETTE[index % PALETTE.length],
+    }));
+
+    const distribution = sleepZonesResult.rows.map((row, index) => ({
+        name: String(row.name),
+        value: toNumber(row.value),
+        color: PALETTE[index % PALETTE.length],
+    }));
+
+    return {
+        kpis,
+        timeSeries,
+        breakdown,
+        distribution,
     };
 };
