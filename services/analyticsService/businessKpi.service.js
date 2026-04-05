@@ -30,6 +30,15 @@ const activeUsersLabel = (range) => {
     return 'Utilisateurs actifs / mois';
 };
 
+const PARTNER_ACTIVITY_WINDOW_DAYS = 30;
+const PARTNER_ACTIVITY_INTERVAL_SQL = `${PARTNER_ACTIVITY_WINDOW_DAYS} days`;
+
+const toIsoOrNull = (value) => {
+    if (!value) return null;
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+};
+
 export const getBusinessKpis = async (range = '30d') => {
     const normalizedRange = normalizeRange(range, '30d');
     const hasRange = hasBoundedRange(normalizedRange);
@@ -874,5 +883,168 @@ export const getBiometricAnalytics = async (range = '30d') => {
         timeSeries,
         breakdown,
         distribution,
+    };
+};
+
+const partnersListQuery = `
+    WITH org_base AS (
+        SELECT o.organization_id, o.name
+        FROM organization o
+    ),
+    org_members AS (
+        SELECT
+            uo.organization_id,
+            COUNT(DISTINCT uo.user_id)::int AS users_count,
+            COUNT(DISTINCT CASE WHEN r.role_type = 'B2B' THEN u.user_id END)::int AS b2b_users_count
+        FROM user_organization uo
+        JOIN user_ u ON u.user_id = uo.user_id
+        JOIN role r ON r.role_id = u.role_id
+        GROUP BY uo.organization_id
+    ),
+    org_logins AS (
+        SELECT
+            uo.organization_id,
+            COUNT(*) FILTER (
+                WHERE lh.last_login >= now() - interval '${PARTNER_ACTIVITY_INTERVAL_SQL}'
+            )::int AS logins_30d,
+            COUNT(DISTINCT CASE
+                WHEN lh.last_login >= now() - interval '${PARTNER_ACTIVITY_INTERVAL_SQL}' THEN lh.user_id
+            END)::int AS active_users_30d,
+            MAX(lh.last_login) AS last_login
+        FROM user_organization uo
+        LEFT JOIN login_history lh ON lh.user_id = uo.user_id
+        GROUP BY uo.organization_id
+    ),
+    org_workouts AS (
+        SELECT
+            uo.organization_id,
+            COUNT(*) FILTER (
+                WHERE ws.start_at >= now() - interval '${PARTNER_ACTIVITY_INTERVAL_SQL}'
+            )::int AS workout_sessions_30d,
+            MAX(ws.start_at) AS last_workout
+        FROM user_organization uo
+        LEFT JOIN workout_session ws ON ws.user_id = uo.user_id
+        GROUP BY uo.organization_id
+    )
+    SELECT
+        ob.organization_id,
+        ob.name,
+        COALESCE(om.users_count, 0)::int AS users_count,
+        COALESCE(om.b2b_users_count, 0)::int AS b2b_users_count,
+        COALESCE(ol.active_users_30d, 0)::int AS active_users_30d,
+        COALESCE(ol.logins_30d, 0)::int AS logins_30d,
+        COALESCE(ow.workout_sessions_30d, 0)::int AS workout_sessions_30d,
+        (COALESCE(ol.logins_30d, 0) + COALESCE(ow.workout_sessions_30d, 0))::int AS activity_events_30d,
+        NULLIF(
+            GREATEST(
+                COALESCE(ol.last_login, TIMESTAMP 'epoch'),
+                COALESCE(ow.last_workout, TIMESTAMP 'epoch')
+            ),
+            TIMESTAMP 'epoch'
+        ) AS last_activity
+    FROM org_base ob
+    LEFT JOIN org_members om ON om.organization_id = ob.organization_id
+    LEFT JOIN org_logins ol ON ol.organization_id = ob.organization_id
+    LEFT JOIN org_workouts ow ON ow.organization_id = ob.organization_id
+    ORDER BY activity_events_30d DESC, users_count DESC, ob.name ASC;
+`;
+
+const monthlyPartnerActivityQuery = `
+    WITH months AS (
+        SELECT generate_series(
+            date_trunc('month', now()) - interval '5 months',
+            date_trunc('month', now()),
+            interval '1 month'
+        ) AS month_start
+    ),
+    login_counts AS (
+        SELECT
+            date_trunc('month', lh.last_login) AS month_start,
+            COUNT(*)::int AS value
+        FROM login_history lh
+        JOIN user_organization uo ON uo.user_id = lh.user_id
+        GROUP BY date_trunc('month', lh.last_login)
+    ),
+    workout_counts AS (
+        SELECT
+            date_trunc('month', ws.start_at) AS month_start,
+            COUNT(*)::int AS value
+        FROM workout_session ws
+        JOIN user_organization uo ON uo.user_id = ws.user_id
+        GROUP BY date_trunc('month', ws.start_at)
+    )
+    SELECT
+        to_char(m.month_start, 'YYYY-MM-DD') AS date,
+        (COALESCE(lc.value, 0) + COALESCE(wc.value, 0))::int AS value
+    FROM months m
+    LEFT JOIN login_counts lc ON lc.month_start = m.month_start
+    LEFT JOIN workout_counts wc ON wc.month_start = m.month_start
+    ORDER BY m.month_start;
+`;
+
+const mapPartnerRow = (row) => {
+    const activityEvents30d = toNumber(row.activity_events_30d);
+    const logins30d = toNumber(row.logins_30d);
+    const workoutSessions30d = toNumber(row.workout_sessions_30d);
+
+    return {
+        id: String(row.organization_id),
+        name: String(row.name || "Organisation inconnue"),
+        status: activityEvents30d > 0 ? 'active' : 'inactive',
+        usersCount: toNumber(row.users_count),
+        b2bUsersCount: toNumber(row.b2b_users_count),
+        activeUsers30d: toNumber(row.active_users_30d),
+        logins30d,
+        workoutSessions30d,
+        activityEvents30d,
+        lastActivity: toIsoOrNull(row.last_activity),
+    };
+};
+
+export const getPartners = async () => {
+    const result = await db.query(partnersListQuery);
+    return result.rows.map(mapPartnerRow);
+};
+
+export const getPartnersDashboard = async () => {
+    const [partners, monthlyActivityResult] = await Promise.all([
+        getPartners(),
+        db.query(monthlyPartnerActivityQuery),
+    ]);
+
+    const usageByPartner = partners
+        .slice()
+        .sort((a, b) => b.activityEvents30d - a.activityEvents30d)
+        .map((partner) => ({
+            name: partner.name,
+            value: partner.activityEvents30d,
+        }));
+
+    const activePartners = partners.filter((partner) => partner.status === 'active').length;
+    const inactivePartners = partners.length - activePartners;
+
+    const partnerStatusBreakdown = [
+        {
+            name: 'Actifs sur 30 jours',
+            value: activePartners,
+            color: '#16A34A',
+        },
+        {
+            name: 'Sans activité sur 30 jours',
+            value: inactivePartners,
+            color: '#6B7280',
+        },
+    ];
+
+    const monthlyActivityEvents = monthlyActivityResult.rows.map((row) => ({
+        date: String(row.date),
+        value: toNumber(row.value),
+    }));
+
+    return {
+        partners,
+        usageByPartner,
+        partnerStatusBreakdown,
+        monthlyActivityEvents,
     };
 };
