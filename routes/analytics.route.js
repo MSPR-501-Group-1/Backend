@@ -1,11 +1,16 @@
 import express from "express";
 import * as controller from "../controllers/analyticsController/businessKpi.controller.js";
-import { requireRole, authenticate } from "../middlewares/auth.middleware.js";
+import { requireRole, authenticate, ROLE_GROUPS } from "../middlewares/auth.middleware.js";
 
-const router = express.Router();
+const analyticsRouter = express.Router();
+const partnersRouter = express.Router();
 
-router.get("/business", authenticate, requireRole("ADMIN", "PREMIUM_PLUS", "B2B"), controller.getBusinessKpis);
-router.get("/nutrition", authenticate, requireRole("ADMIN", "PREMIUM", "PREMIUM_PLUS", "B2B"), controller.getNutritionAnalytics);
-router.get("/biometric", authenticate, requireRole("ADMIN", "PREMIUM", "PREMIUM_PLUS", "B2B"), controller.getBiometricAnalytics);
+analyticsRouter.get("/business", authenticate, requireRole(...ROLE_GROUPS.BUSINESS_ANALYTICS), controller.getBusinessKpis);
+analyticsRouter.get("/nutrition", authenticate, requireRole(...ROLE_GROUPS.ANALYTICS), controller.getNutritionAnalytics);
+analyticsRouter.get("/biometric", authenticate, requireRole(...ROLE_GROUPS.ANALYTICS), controller.getBiometricAnalytics);
 
-export default router;
+partnersRouter.get("/", authenticate, requireRole(...ROLE_GROUPS.PARTNERS), controller.getPartners);
+partnersRouter.get("/dashboard", authenticate, requireRole(...ROLE_GROUPS.PARTNERS), controller.getPartnersDashboard);
+
+export { partnersRouter };
+export default analyticsRouter;

@@ -56,3 +56,39 @@ export const getBiometricAnalytics = async (req, res) => {
         });
     }
 };
+
+export const getPartners = async (_req, res) => {
+    try {
+        const data = await businessKpiService.getPartners();
+
+        return res.status(200).json({
+            success: true,
+            data,
+        });
+    } catch (error) {
+        console.error("Erreur getPartners:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Erreur lors de la récupération des partenaires",
+        });
+    }
+};
+
+export const getPartnersDashboard = async (_req, res) => {
+    try {
+        const data = await businessKpiService.getPartnersDashboard();
+
+        return res.status(200).json({
+            success: true,
+            data,
+        });
+    } catch (error) {
+        console.error("Erreur getPartnersDashboard:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Erreur lors de la récupération du dashboard partenaires",
+        });
+    }
+};

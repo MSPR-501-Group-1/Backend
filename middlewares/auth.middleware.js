@@ -4,6 +4,12 @@ import { adminUpdateUserSchema, ownerUpdateUserSchema } from "../schemas/user.sc
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN;
 
+export const ROLE_GROUPS = Object.freeze({
+    ANALYTICS: Object.freeze(["ADMIN", "PREMIUM", "PREMIUM_PLUS", "B2B"]),
+    BUSINESS_ANALYTICS: Object.freeze(["ADMIN", "PREMIUM_PLUS", "B2B"]),
+    PARTNERS: Object.freeze(["ADMIN", "B2B"]),
+});
+
 // Generate a JWT token from user_id / email / role_type
 export const generateToken = (user) => {
     return jwt.sign(
