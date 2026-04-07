@@ -8,6 +8,7 @@ import userProfileRoutes from "./routes/userProfile.route.js";
 import systemRoutes from "./routes/system.route.js";
 import userMetricsRoutes from "./routes/userMetrics.route.js";
 import analyticsRoutes, { partnersRouter } from "./routes/analytics.route.js";
+import etlRoutes from "./routes/etl.routes.js";
 
 const app = express();
 
@@ -31,6 +32,7 @@ app.use("/user-profiles", userProfileRoutes);
 app.use("/metrics", userMetricsRoutes);
 app.use("/analytics", analyticsRoutes);
 app.use("/partners", partnersRouter);
+app.use("/etl", etlRoutes);
 
 // Middleware de gestion d'erreurs global
 app.use((err, req, res, next) => {
