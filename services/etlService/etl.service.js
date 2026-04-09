@@ -44,9 +44,10 @@ export const launchEtlPipeline = async (pipeline) => {
 };
 
 // Push ETL data to database (after transformation is done and batch is validated by the admin)
-export const pushEtlData = async (id) => {
+export const pushEtlData = async (id, pipeline) => {
     // Call the ETL API to push the data to the database
-    const response = await fetch(`${process.env.ETL_API_URL}/api/pipelines/${id}/push`, {
+    console.log(`Pushing ETL data for execution ${id} and pipeline ${pipeline}`);
+    const response = await fetch(`${process.env.ETL_API_URL}/api/pipelines/${pipeline}/load/${id}`, {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
@@ -59,6 +60,19 @@ export const pushEtlData = async (id) => {
 
     const result = await response.json();
     return result;
+};
+
+// Update the status of an ETL execution
+export const updateEtlStatus = async (id, status) => {
+    const result = await db.query(
+        `UPDATE etl_execution
+         SET status = $2
+         WHERE execution_id = $1
+         RETURNING execution_id as id, name, status, started_at, ended_at as completed_at, records_extracted, records_rejected as records_errors`,
+        [id, status.toUpperCase()]
+    );
+
+    return result.rows[0] || null;
 };
 
 // Modify the status of an ETL execution to "loaded" after the data has been successfully pushed to the database

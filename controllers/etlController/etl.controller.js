@@ -1,3 +1,4 @@
+import { pipe } from "zod";
 import * as etlService from "../../services/etlService/etl.service.js";
 
 // Get all etl execution with their status and info (Ydatas / datas)
@@ -63,30 +64,19 @@ export const launchEtlPipeline = async (req, res) => {
     }
 };
 
-// Push ETL data to database
-export const pushEtlData = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const result = await etlService.pushEtlData(id);
-
-        res.status(200).json({
-            success: true,
-            data: result
-        });
-    } catch (error) {
-        console.error("Erreur pushEtlData:", error);
-        res.status(500).json({
-            success: false,
-            message: "Erreur lors du push des données de la pipeline ETL"
-        });
-    }
-};
-
 // Mark ETL execution as loaded after successful validation
 export const markEtlAsLoaded = async (req, res) => {
     try {
         const { id } = req.params;
-        const result = await etlService.markEtlAsLoaded(id);
+        const { pipeline } = req.body;
+
+        // First, push the data to the database via ETL API
+        const result = await etlService.pushEtlData(id, pipeline);
+
+        // Then update the status in our database with the status returned by the ETL API
+        if (result && result.status) {
+            await etlService.updateEtlStatus(id, result.status);
+        }
 
         res.status(200).json({
             success: true,

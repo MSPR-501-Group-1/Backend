@@ -13,10 +13,7 @@ router.post("/:pipeline", authenticate, requireRole("ADMIN"), controller.launchE
 // Récupère le status d'une pipeline ETL + des infos (Ydatas / datas)
 router.get("/:id", authenticate, requireRole("ADMIN"), controller.getEtlById);
 
-// Permet de push les datas d'une pipeline ETL sur la base de données
-router.post("/pushEtl/:id", authenticate, requireRole("ADMIN"), controller.pushEtlData);
-
-// Modify the status of an ETL execution (after validation by the admin)
+// Validate and push ETL data to database (uses status returned by ETL API)
 router.post("/validate/:id", authenticate, requireRole("ADMIN"), controller.markEtlAsLoaded);
 router.post("/reject/:id", authenticate, requireRole("ADMIN"), controller.markEtlAsRejected);
 router.delete("/:id", authenticate, requireRole("ADMIN"), controller.deleteEtlExecution);
