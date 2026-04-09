@@ -57,6 +57,25 @@ export const getBiometricAnalytics = async (req, res) => {
     }
 };
 
+export const getDataQualityScore = async (req, res) => {
+    try {
+        const { range } = req.query;
+        const data = await businessKpiService.getDataQualityScore(range);
+
+        return res.status(200).json({
+            success: true,
+            data,
+        });
+    } catch (error) {
+        console.error("Erreur getDataQualityScore:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Erreur lors de la récupération du score de qualité des données",
+        });
+    }
+};
+
 export const getPartners = async (_req, res) => {
     try {
         const data = await businessKpiService.getPartners();

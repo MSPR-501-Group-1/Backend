@@ -886,6 +886,150 @@ export const getBiometricAnalytics = async (range = '30d') => {
     };
 };
 
+export const getDataQualityScore = async (range = '30d') => {
+    const normalizedRange = normalizeRange(range, '30d');
+    const hasRange = hasBoundedRange(normalizedRange);
+    const interval = RANGE_INTERVALS[normalizedRange];
+    const rangeDays = RANGE_DAYS[normalizedRange] ?? 30;
+    const params = hasRange ? [interval] : [];
+    const qualityFilterCurrent = currentWindowSql('dqc.checked_at', normalizedRange);
+
+    const overallQuery = `
+        SELECT
+            CASE
+                WHEN COALESCE(SUM(dqc.records_checked), 0) <= 0 THEN 0
+                ELSE ROUND(
+                    GREATEST(
+                        0,
+                        LEAST(
+                            100,
+                            (1 - (COALESCE(SUM(dqc.records_failed), 0)::numeric / NULLIF(COALESCE(SUM(dqc.records_checked), 0)::numeric, 0))) * 100
+                        )
+                    ),
+                    1
+                )
+            END AS score
+        FROM data_quality_check_ dqc
+        WHERE dqc.checked_at IS NOT NULL
+          ${qualityFilterCurrent};
+    `;
+
+    const dimensionsQuery = `
+        SELECT
+            COALESCE(LOWER(dqc.check_type), 'unknown') AS name,
+            CASE
+                WHEN COALESCE(SUM(dqc.records_checked), 0) <= 0 THEN 0
+                ELSE ROUND(
+                    GREATEST(
+                        0,
+                        LEAST(
+                            100,
+                            (1 - (COALESCE(SUM(dqc.records_failed), 0)::numeric / NULLIF(COALESCE(SUM(dqc.records_checked), 0)::numeric, 0))) * 100
+                        )
+                    ),
+                    1
+                )
+            END AS score
+        FROM data_quality_check_ dqc
+        WHERE dqc.checked_at IS NOT NULL
+          ${qualityFilterCurrent}
+        GROUP BY LOWER(dqc.check_type)
+        ORDER BY score DESC, name ASC;
+    `;
+
+    const historyQuery = hasRange
+        ? `
+            WITH days AS (
+                SELECT generate_series(current_date - ($2::int - 1), current_date, interval '1 day')::date AS day
+            ),
+            daily AS (
+                SELECT
+                    date(dqc.checked_at) AS day,
+                    COALESCE(SUM(dqc.records_checked), 0)::numeric AS checked,
+                    COALESCE(SUM(dqc.records_failed), 0)::numeric AS failed
+                FROM data_quality_check_ dqc
+                WHERE dqc.checked_at IS NOT NULL
+                  AND dqc.checked_at >= now() - $1::interval
+                  AND dqc.checked_at <= now()
+                GROUP BY date(dqc.checked_at)
+            )
+            SELECT
+                to_char(days.day, 'YYYY-MM-DD') AS date,
+                CASE
+                    WHEN COALESCE(daily.checked, 0) <= 0 THEN 0
+                    ELSE ROUND(
+                        GREATEST(
+                            0,
+                            LEAST(100, (1 - (daily.failed / NULLIF(daily.checked, 0))) * 100)
+                        ),
+                        1
+                    )
+                END AS score
+            FROM days
+            LEFT JOIN daily ON daily.day = days.day
+            ORDER BY days.day;
+        `
+        : `
+            WITH bounds AS (
+                SELECT
+                    COALESCE(MIN(date(dqc.checked_at)), current_date) AS min_day,
+                    COALESCE(MAX(date(dqc.checked_at)), current_date) AS max_day
+                FROM data_quality_check_ dqc
+                WHERE dqc.checked_at IS NOT NULL
+            ),
+            days AS (
+                SELECT generate_series(min_day, max_day, interval '1 day')::date AS day
+                FROM bounds
+            ),
+            daily AS (
+                SELECT
+                    date(dqc.checked_at) AS day,
+                    COALESCE(SUM(dqc.records_checked), 0)::numeric AS checked,
+                    COALESCE(SUM(dqc.records_failed), 0)::numeric AS failed
+                FROM data_quality_check_ dqc
+                WHERE dqc.checked_at IS NOT NULL
+                GROUP BY date(dqc.checked_at)
+            )
+            SELECT
+                to_char(days.day, 'YYYY-MM-DD') AS date,
+                CASE
+                    WHEN COALESCE(daily.checked, 0) <= 0 THEN 0
+                    ELSE ROUND(
+                        GREATEST(
+                            0,
+                            LEAST(100, (1 - (daily.failed / NULLIF(daily.checked, 0))) * 100)
+                        ),
+                        1
+                    )
+                END AS score
+            FROM days
+            LEFT JOIN daily ON daily.day = days.day
+            ORDER BY days.day;
+        `;
+
+    const historyParams = hasRange ? [interval, rangeDays] : [];
+
+    const [overallResult, dimensionsResult, historyResult] = await Promise.all([
+        db.query(overallQuery, params),
+        db.query(dimensionsQuery, params),
+        db.query(historyQuery, historyParams),
+    ]);
+
+    return {
+        overall: {
+            score: round1(toNumber(overallResult.rows[0]?.score, 0)),
+        },
+        dimensions: dimensionsResult.rows.map((row) => ({
+            name: String(row.name || 'unknown'),
+            score: round1(toNumber(row.score, 0)),
+        })),
+        history: historyResult.rows.map((row) => ({
+            date: String(row.date),
+            score: round1(toNumber(row.score, 0)),
+        })),
+    };
+};
+
 const partnersListQuery = `
     WITH org_base AS (
         SELECT o.organization_id, o.name
