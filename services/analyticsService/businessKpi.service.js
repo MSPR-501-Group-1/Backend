@@ -886,6 +886,100 @@ export const getBiometricAnalytics = async (range = '30d') => {
     };
 };
 
+export const getDataQualityScore = async (range = '30d') => {
+    const normalizedRange = normalizeRange(range, '30d');
+    const hasRange = hasBoundedRange(normalizedRange);
+    const interval = RANGE_INTERVALS[normalizedRange];
+    const params = hasRange ? [interval] : [];
+    const qualityFilterCurrent = currentWindowSql('dqc.checked_at', normalizedRange);
+
+    const overallQuery = `
+        SELECT
+            CASE
+                WHEN COALESCE(SUM(dqc.records_checked), 0) <= 0 THEN 0
+                ELSE ROUND(
+                    GREATEST(
+                        0,
+                        LEAST(
+                            100,
+                            (1 - (COALESCE(SUM(dqc.records_failed), 0)::numeric / NULLIF(COALESCE(SUM(dqc.records_checked), 0)::numeric, 0))) * 100
+                        )
+                    ),
+                    1
+                )
+            END AS score
+        FROM data_quality_check_ dqc
+        WHERE dqc.checked_at IS NOT NULL
+          ${qualityFilterCurrent};
+    `;
+
+    const dimensionsQuery = `
+        SELECT
+            COALESCE(LOWER(dqc.check_type), 'unknown') AS name,
+            CASE
+                WHEN COALESCE(SUM(dqc.records_checked), 0) <= 0 THEN 0
+                ELSE ROUND(
+                    GREATEST(
+                        0,
+                        LEAST(
+                            100,
+                            (1 - (COALESCE(SUM(dqc.records_failed), 0)::numeric / NULLIF(COALESCE(SUM(dqc.records_checked), 0)::numeric, 0))) * 100
+                        )
+                    ),
+                    1
+                )
+            END AS score
+        FROM data_quality_check_ dqc
+        WHERE dqc.checked_at IS NOT NULL
+          ${qualityFilterCurrent}
+        GROUP BY LOWER(dqc.check_type)
+        ORDER BY score DESC, name ASC;
+    `;
+
+    const historyQuery = `
+        SELECT
+            to_char(date_trunc('day', dqc.checked_at), 'YYYY-MM-DD') AS date,
+            CASE
+                WHEN COALESCE(SUM(dqc.records_checked), 0) <= 0 THEN 0
+                ELSE ROUND(
+                    GREATEST(
+                        0,
+                        LEAST(
+                            100,
+                            (1 - (COALESCE(SUM(dqc.records_failed), 0)::numeric / NULLIF(COALESCE(SUM(dqc.records_checked), 0)::numeric, 0))) * 100
+                        )
+                    ),
+                    1
+                )
+            END AS score
+        FROM data_quality_check_ dqc
+        WHERE dqc.checked_at IS NOT NULL
+          ${qualityFilterCurrent}
+        GROUP BY date_trunc('day', dqc.checked_at)
+        ORDER BY date_trunc('day', dqc.checked_at);
+    `;
+
+    const [overallResult, dimensionsResult, historyResult] = await Promise.all([
+        db.query(overallQuery, params),
+        db.query(dimensionsQuery, params),
+        db.query(historyQuery, params),
+    ]);
+
+    return {
+        overall: {
+            score: round1(toNumber(overallResult.rows[0]?.score, 0)),
+        },
+        dimensions: dimensionsResult.rows.map((row) => ({
+            name: String(row.name || 'unknown'),
+            score: round1(toNumber(row.score, 0)),
+        })),
+        history: historyResult.rows.map((row) => ({
+            date: String(row.date),
+            score: round1(toNumber(row.score, 0)),
+        })),
+    };
+};
+
 const partnersListQuery = `
     WITH org_base AS (
         SELECT o.organization_id, o.name

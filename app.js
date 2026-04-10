@@ -7,7 +7,7 @@ import authRoutes from "./routes/auth.route.js";
 import userProfileRoutes from "./routes/userProfile.route.js";
 import systemRoutes from "./routes/system.route.js";
 import userMetricsRoutes from "./routes/userMetrics.route.js";
-import analyticsRoutes, { partnersRouter } from "./routes/analytics.route.js";
+import analyticsRoutes, { partnersRouter, dataQualityRouter } from "./routes/analytics.route.js";
 import etlRoutes from "./routes/etl.routes.js";
 import filesRoutes from "./routes/files.routes.js";
 
@@ -33,6 +33,7 @@ app.use("/user-profiles", userProfileRoutes);
 app.use("/metrics", userMetricsRoutes);
 app.use("/analytics", analyticsRoutes);
 app.use("/partners", partnersRouter);
+app.use("/data-quality", dataQualityRouter);
 app.use("/etl", etlRoutes);
 app.use("/api/files", filesRoutes);
 

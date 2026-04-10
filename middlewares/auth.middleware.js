@@ -7,6 +7,7 @@ const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN;
 export const ROLE_GROUPS = Object.freeze({
     ANALYTICS: Object.freeze(["ADMIN", "PREMIUM", "PREMIUM_PLUS", "B2B"]),
     BUSINESS_ANALYTICS: Object.freeze(["ADMIN", "PREMIUM_PLUS", "B2B"]),
+    DATA_QUALITY: Object.freeze(["ADMIN", "PREMIUM_PLUS"]),
     PARTNERS: Object.freeze(["ADMIN", "B2B"]),
 });
 
