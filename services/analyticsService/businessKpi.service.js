@@ -50,7 +50,6 @@ const DASHBOARD_SERIES = Object.freeze([
     { key: 'Nutrition', color: '#2563EB' },
     { key: 'Fitness', color: '#7C3AED' },
     { key: 'Biométrique', color: '#16A34A' },
-    { key: 'Sommeil', color: '#F59E0B' },
 ]);
 
 const toIsoOrNull = (value) => {
@@ -609,7 +608,6 @@ export const getDashboardData = async (range = '30d') => {
         Nutrition: toNumber(row.nutrition),
         Fitness: toNumber(row.fitness),
         'Biométrique': toNumber(row.biometric),
-        Sommeil: 0,
     }));
 
     const sourceTotals = dataIngestion.reduce(
@@ -617,9 +615,8 @@ export const getDashboardData = async (range = '30d') => {
             Nutrition: acc.Nutrition + toNumber(row.Nutrition),
             Fitness: acc.Fitness + toNumber(row.Fitness),
             'Biométrique': acc['Biométrique'] + toNumber(row['Biométrique']),
-            Sommeil: acc.Sommeil + toNumber(row.Sommeil),
         }),
-        { Nutrition: 0, Fitness: 0, 'Biométrique': 0, Sommeil: 0 }
+        { Nutrition: 0, Fitness: 0, 'Biométrique': 0 }
     );
 
     const totalSourceEvents = Object.values(sourceTotals).reduce((sum, value) => sum + value, 0);
