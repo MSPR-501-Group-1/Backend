@@ -5,6 +5,9 @@ import { requireRole, authenticate, ROLE_GROUPS } from "../middlewares/auth.midd
 const analyticsRouter = express.Router();
 const partnersRouter = express.Router();
 const dataQualityRouter = express.Router();
+const dashboardRouter = express.Router();
+
+dashboardRouter.get("/dashboard", authenticate, requireRole(...ROLE_GROUPS.ANALYTICS), controller.getDashboard);
 
 analyticsRouter.get("/business", authenticate, requireRole(...ROLE_GROUPS.BUSINESS_ANALYTICS), controller.getBusinessKpis);
 analyticsRouter.get("/nutrition", authenticate, requireRole(...ROLE_GROUPS.ANALYTICS), controller.getNutritionAnalytics);
@@ -14,5 +17,5 @@ dataQualityRouter.get("/score", authenticate, requireRole(...ROLE_GROUPS.DATA_QU
 partnersRouter.get("/", authenticate, requireRole(...ROLE_GROUPS.PARTNERS), controller.getPartners);
 partnersRouter.get("/dashboard", authenticate, requireRole(...ROLE_GROUPS.PARTNERS), controller.getPartnersDashboard);
 
-export { partnersRouter, dataQualityRouter };
+export { partnersRouter, dataQualityRouter, dashboardRouter };
 export default analyticsRouter;
