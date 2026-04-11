@@ -32,11 +32,627 @@ const activeUsersLabel = (range) => {
 
 const PARTNER_ACTIVITY_WINDOW_DAYS = 30;
 const PARTNER_ACTIVITY_INTERVAL_SQL = `${PARTNER_ACTIVITY_WINDOW_DAYS} days`;
+const DASHBOARD_WINDOW_DAYS = 30;
+
+const DASHBOARD_DATA_QUALITY_TARGET = 90;
+const DASHBOARD_ETL_SUCCESS_TARGET = 99;
+
+const ANOMALY_TYPE_LABELS = Object.freeze({
+    RANGE_CHECK: 'Valeur hors plage',
+    NULL_CHECK: 'Donnee manquante',
+    DUPLICATE_CHECK: 'Doublon',
+    FORMAT_CHECK: 'Format invalide',
+    CONSISTENCY_CHECK: 'Incoherence',
+    UNKNOWN: 'Inconnue',
+});
+
+const DASHBOARD_SERIES = Object.freeze([
+    { key: 'Nutrition', color: '#2563EB' },
+    { key: 'Fitness', color: '#7C3AED' },
+    { key: 'Biométrique', color: '#16A34A' },
+    { key: 'Sommeil', color: '#F59E0B' },
+]);
 
 const toIsoOrNull = (value) => {
     if (!value) return null;
     const parsed = new Date(value);
     return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+};
+
+export const getDashboardData = async (range = '30d') => {
+    const normalizedRange = normalizeRange(range, '30d');
+    const hasRange = hasBoundedRange(normalizedRange);
+    const interval = RANGE_INTERVALS[normalizedRange];
+    const rangeDays = RANGE_DAYS[normalizedRange] ?? DASHBOARD_WINDOW_DAYS;
+    const params = hasRange ? [interval] : [];
+
+    const loginFilterCurrent = currentWindowSql('lh.last_login', normalizedRange);
+    const loginFilterPrevious = previousWindowSql('lh.last_login', normalizedRange);
+    const workoutFilterCurrent = currentWindowSql('ws.start_at', normalizedRange);
+    const workoutFilterPrevious = previousWindowSql('ws.start_at', normalizedRange);
+    const qualityFilterCurrent = currentWindowSql('dqc.checked_at', normalizedRange);
+    const qualityFilterPrevious = previousWindowSql('dqc.checked_at', normalizedRange);
+    const etlFilterCurrent = currentWindowSql('etl.started_at', normalizedRange);
+    const etlFilterPrevious = previousWindowSql('etl.started_at', normalizedRange);
+
+    const userActivityQuery = hasRange
+        ? `
+            WITH days AS (
+                SELECT generate_series(current_date - (${rangeDays} - 1), current_date, interval '1 day')::date AS day
+            ),
+            counts AS (
+                SELECT date(lh.last_login) AS day, COUNT(DISTINCT lh.user_id)::int AS value
+                FROM login_history lh
+                WHERE lh.last_login >= current_date - (${rangeDays} - 1)
+                  AND lh.last_login <= now()
+                GROUP BY date(lh.last_login)
+            )
+            SELECT
+                to_char(days.day, 'YYYY-MM-DD') AS date,
+                COALESCE(counts.value, 0)::int AS value
+            FROM days
+            LEFT JOIN counts ON counts.day = days.day
+            ORDER BY days.day;
+        `
+        : `
+            WITH bounds AS (
+                SELECT
+                    COALESCE(MIN(date(lh.last_login)), current_date) AS min_day,
+                    COALESCE(MAX(date(lh.last_login)), current_date) AS max_day
+                FROM login_history lh
+            ),
+            days AS (
+                SELECT generate_series(bounds.min_day, bounds.max_day, interval '1 day')::date AS day
+                FROM bounds
+            ),
+            counts AS (
+                SELECT date(lh.last_login) AS day, COUNT(DISTINCT lh.user_id)::int AS value
+                FROM login_history lh
+                GROUP BY date(lh.last_login)
+            )
+            SELECT
+                to_char(days.day, 'YYYY-MM-DD') AS date,
+                COALESCE(counts.value, 0)::int AS value
+            FROM days
+            LEFT JOIN counts ON counts.day = days.day
+            ORDER BY days.day;
+        `;
+
+    const dataQualityTrendQuery = hasRange
+        ? `
+            WITH days AS (
+                SELECT generate_series(current_date - (${rangeDays} - 1), current_date, interval '1 day')::date AS day
+            ),
+            scores AS (
+                SELECT
+                    date_trunc('day', dqc.checked_at)::date AS day,
+                    CASE
+                        WHEN COALESCE(SUM(dqc.records_checked), 0) <= 0 THEN 0
+                        ELSE ROUND(
+                            GREATEST(
+                                0,
+                                LEAST(
+                                    100,
+                                    (1 - (COALESCE(SUM(dqc.records_failed), 0)::numeric / NULLIF(COALESCE(SUM(dqc.records_checked), 0)::numeric, 0))) * 100
+                                )
+                            ),
+                            1
+                        )
+                    END AS value
+                FROM data_quality_check_ dqc
+                WHERE dqc.checked_at >= current_date - (${rangeDays} - 1)
+                  AND dqc.checked_at <= now()
+                GROUP BY date_trunc('day', dqc.checked_at)
+            )
+            SELECT
+                to_char(days.day, 'YYYY-MM-DD') AS date,
+                COALESCE(scores.value, 0)::numeric AS value
+            FROM days
+            LEFT JOIN scores ON scores.day = days.day
+            ORDER BY days.day;
+        `
+        : `
+            WITH bounds AS (
+                SELECT
+                    COALESCE(MIN(date(dqc.checked_at)), current_date) AS min_day,
+                    COALESCE(MAX(date(dqc.checked_at)), current_date) AS max_day
+                FROM data_quality_check_ dqc
+            ),
+            days AS (
+                SELECT generate_series(bounds.min_day, bounds.max_day, interval '1 day')::date AS day
+                FROM bounds
+            ),
+            scores AS (
+                SELECT
+                    date_trunc('day', dqc.checked_at)::date AS day,
+                    CASE
+                        WHEN COALESCE(SUM(dqc.records_checked), 0) <= 0 THEN 0
+                        ELSE ROUND(
+                            GREATEST(
+                                0,
+                                LEAST(
+                                    100,
+                                    (1 - (COALESCE(SUM(dqc.records_failed), 0)::numeric / NULLIF(COALESCE(SUM(dqc.records_checked), 0)::numeric, 0))) * 100
+                                )
+                            ),
+                            1
+                        )
+                    END AS value
+                FROM data_quality_check_ dqc
+                GROUP BY date_trunc('day', dqc.checked_at)
+            )
+            SELECT
+                to_char(days.day, 'YYYY-MM-DD') AS date,
+                COALESCE(scores.value, 0)::numeric AS value
+            FROM days
+            LEFT JOIN scores ON scores.day = days.day
+            ORDER BY days.day;
+        `;
+
+    const anomalyTrendQuery = hasRange
+        ? `
+            WITH days AS (
+                SELECT generate_series(current_date - (${rangeDays} - 1), current_date, interval '1 day')::date AS day
+            ),
+            detected AS (
+                SELECT
+                    date_trunc('day', dqc.checked_at)::date AS day,
+                    COALESCE(SUM(dqc.records_failed), 0)::numeric AS new_count
+                FROM data_quality_check_ dqc
+                WHERE dqc.checked_at >= current_date - (${rangeDays} - 1)
+                  AND dqc.checked_at <= now()
+                GROUP BY date_trunc('day', dqc.checked_at)
+            ),
+            resolved AS (
+                SELECT
+                    date_trunc('day', da.detected_at)::date AS day,
+                    COUNT(*)::numeric AS resolved_count
+                FROM data_anomaly da
+                WHERE COALESCE(da.is_resolved, false) = true
+                  AND da.detected_at >= current_date - (${rangeDays} - 1)
+                  AND da.detected_at <= now()
+                GROUP BY date_trunc('day', da.detected_at)
+            )
+            SELECT
+                to_char(days.day, 'YYYY-MM-DD') AS date,
+                COALESCE(detected.new_count, 0)::numeric AS new_count,
+                COALESCE(resolved.resolved_count, 0)::numeric AS resolved_count
+            FROM days
+            LEFT JOIN detected ON detected.day = days.day
+            LEFT JOIN resolved ON resolved.day = days.day
+            ORDER BY days.day;
+        `
+        : `
+            WITH bounds AS (
+                SELECT
+                    COALESCE(MIN(date(dqc.checked_at)), current_date) AS min_day,
+                    COALESCE(MAX(date(dqc.checked_at)), current_date) AS max_day
+                FROM data_quality_check_ dqc
+            ),
+            days AS (
+                SELECT generate_series(bounds.min_day, bounds.max_day, interval '1 day')::date AS day
+                FROM bounds
+            ),
+            detected AS (
+                SELECT
+                    date_trunc('day', dqc.checked_at)::date AS day,
+                    COALESCE(SUM(dqc.records_failed), 0)::numeric AS new_count
+                FROM data_quality_check_ dqc
+                GROUP BY date_trunc('day', dqc.checked_at)
+            ),
+            resolved AS (
+                SELECT
+                    date_trunc('day', da.detected_at)::date AS day,
+                    COUNT(*)::numeric AS resolved_count
+                FROM data_anomaly da
+                WHERE COALESCE(da.is_resolved, false) = true
+                GROUP BY date_trunc('day', da.detected_at)
+            )
+            SELECT
+                to_char(days.day, 'YYYY-MM-DD') AS date,
+                COALESCE(detected.new_count, 0)::numeric AS new_count,
+                COALESCE(resolved.resolved_count, 0)::numeric AS resolved_count
+            FROM days
+            LEFT JOIN detected ON detected.day = days.day
+            LEFT JOIN resolved ON resolved.day = days.day
+            ORDER BY days.day;
+        `;
+
+    const [
+        currentOverviewResult,
+        userActivityResult,
+        dataQualityTrendResult,
+        anomaliesByTypeResult,
+        dataIngestionResult,
+        anomalyTrendResult,
+        anomaliesOpenCurrentResult,
+        previousOverviewResult,
+        anomaliesOpenBaselineResult,
+    ] = await Promise.all([
+        db.query(`
+            WITH login_scope AS (
+                SELECT lh.user_id
+                FROM login_history lh
+                WHERE 1=1
+                  ${loginFilterCurrent}
+            ),
+            workout_scope AS (
+                SELECT ws.session_id
+                FROM workout_session ws
+                WHERE 1=1
+                  ${workoutFilterCurrent}
+            ),
+            quality_scope AS (
+                SELECT dqc.records_checked, dqc.records_failed
+                FROM data_quality_check_ dqc
+                WHERE 1=1
+                  ${qualityFilterCurrent}
+            ),
+            etl_scope AS (
+                SELECT
+                    etl.status,
+                    date_trunc('day', etl.started_at)::date AS day,
+                    COALESCE(etl.records_loaded, 0)::numeric AS records_loaded
+                FROM etl_execution etl
+                WHERE 1=1
+                  ${etlFilterCurrent}
+            ),
+            etl_daily AS (
+                SELECT day, SUM(records_loaded)::numeric AS loaded_records
+                FROM etl_scope
+                GROUP BY day
+            )
+            SELECT
+                (SELECT COUNT(DISTINCT user_id)::numeric FROM login_scope) AS active_users,
+                (SELECT COUNT(*)::numeric FROM login_scope) AS login_events,
+                (SELECT COUNT(*)::numeric FROM workout_scope) AS workout_events,
+                (
+                    SELECT
+                        CASE
+                            WHEN COALESCE(SUM(records_checked), 0) <= 0 THEN 0
+                            ELSE ROUND(
+                                GREATEST(
+                                    0,
+                                    LEAST(
+                                        100,
+                                        (1 - (COALESCE(SUM(records_failed), 0)::numeric / NULLIF(COALESCE(SUM(records_checked), 0)::numeric, 0))) * 100
+                                    )
+                                ),
+                                1
+                            )
+                        END
+                    FROM quality_scope
+                ) AS data_quality_score,
+                (SELECT COUNT(*)::numeric FROM etl_scope) AS etl_total_runs,
+                (SELECT COALESCE(SUM(CASE WHEN status = 'LOADED' THEN 1 ELSE 0 END), 0)::numeric FROM etl_scope) AS etl_loaded_runs,
+                (SELECT COALESCE(ROUND(AVG(loaded_records), 1), 0)::numeric FROM etl_daily) AS records_per_day;
+        `, params),
+        db.query(userActivityQuery),
+        db.query(dataQualityTrendQuery),
+        db.query(`
+            SELECT
+                COALESCE(UPPER(dqc.check_type), 'UNKNOWN') AS anomaly_type,
+                COALESCE(SUM(dqc.records_failed), 0)::numeric AS value
+            FROM data_quality_check_ dqc
+            WHERE 1=1
+              ${qualityFilterCurrent}
+            GROUP BY COALESCE(UPPER(dqc.check_type), 'UNKNOWN')
+            HAVING COALESCE(SUM(dqc.records_failed), 0) > 0
+            ORDER BY value DESC, anomaly_type ASC;
+        `, params),
+        db.query(`
+            SELECT
+                to_char(source.day, 'YYYY-MM-DD') AS date,
+                COALESCE(SUM(CASE WHEN source.category = 'Nutrition' THEN source.value ELSE 0 END), 0)::numeric AS nutrition,
+                COALESCE(SUM(CASE WHEN source.category = 'Fitness' THEN source.value ELSE 0 END), 0)::numeric AS fitness,
+                COALESCE(SUM(CASE WHEN source.category = 'Biometrique' THEN source.value ELSE 0 END), 0)::numeric AS biometric
+            FROM (
+                SELECT date_trunc('day', dqc.checked_at)::date AS day, COUNT(*)::numeric AS value, 'Nutrition'::text AS category
+                FROM data_quality_check_ dqc
+                WHERE lower(COALESCE(dqc.target_table, '')) = 'ingredient'
+                  ${qualityFilterCurrent}
+                GROUP BY date_trunc('day', dqc.checked_at)
+
+                UNION ALL
+
+                SELECT date_trunc('day', etl.started_at)::date AS day, COUNT(*)::numeric AS value, 'Nutrition'::text AS category
+                FROM etl_execution etl
+                WHERE lower(COALESCE(etl.name, '')) LIKE '%nutrition%'
+                  ${etlFilterCurrent}
+                GROUP BY date_trunc('day', etl.started_at)
+
+                UNION ALL
+
+                SELECT date_trunc('day', ws.start_at)::date AS day, COUNT(*)::numeric AS value, 'Fitness'::text AS category
+                FROM workout_session ws
+                WHERE 1=1
+                  ${workoutFilterCurrent}
+                GROUP BY date_trunc('day', ws.start_at)
+
+                UNION ALL
+
+                SELECT date_trunc('day', dqc.checked_at)::date AS day, COUNT(*)::numeric AS value, 'Fitness'::text AS category
+                FROM data_quality_check_ dqc
+                WHERE lower(COALESCE(dqc.target_table, '')) = 'exercise'
+                  ${qualityFilterCurrent}
+                GROUP BY date_trunc('day', dqc.checked_at)
+
+                UNION ALL
+
+                SELECT date_trunc('day', dqc.checked_at)::date AS day, COUNT(*)::numeric AS value, 'Biometrique'::text AS category
+                FROM data_quality_check_ dqc
+                WHERE lower(COALESCE(dqc.target_table, '')) = 'user_metrics'
+                  ${qualityFilterCurrent}
+                GROUP BY date_trunc('day', dqc.checked_at)
+            ) source
+            GROUP BY source.day
+            ORDER BY source.day;
+        `, params),
+        db.query(anomalyTrendQuery),
+        db.query(`
+            SELECT COUNT(*)::numeric AS value
+            FROM data_anomaly da
+            WHERE COALESCE(da.is_resolved, false) = false;
+        `),
+        hasRange
+            ? db.query(`
+                WITH login_scope AS (
+                    SELECT lh.user_id
+                    FROM login_history lh
+                    WHERE 1=1
+                      ${loginFilterPrevious}
+                ),
+                workout_scope AS (
+                    SELECT ws.session_id
+                    FROM workout_session ws
+                    WHERE 1=1
+                      ${workoutFilterPrevious}
+                ),
+                quality_scope AS (
+                    SELECT dqc.records_checked, dqc.records_failed
+                    FROM data_quality_check_ dqc
+                    WHERE 1=1
+                      ${qualityFilterPrevious}
+                ),
+                etl_scope AS (
+                    SELECT
+                        etl.status,
+                        date_trunc('day', etl.started_at)::date AS day,
+                        COALESCE(etl.records_loaded, 0)::numeric AS records_loaded
+                    FROM etl_execution etl
+                    WHERE 1=1
+                      ${etlFilterPrevious}
+                ),
+                etl_daily AS (
+                    SELECT day, SUM(records_loaded)::numeric AS loaded_records
+                    FROM etl_scope
+                    GROUP BY day
+                )
+                SELECT
+                    (SELECT COUNT(DISTINCT user_id)::numeric FROM login_scope) AS active_users,
+                    (SELECT COUNT(*)::numeric FROM login_scope) AS login_events,
+                    (SELECT COUNT(*)::numeric FROM workout_scope) AS workout_events,
+                    (
+                        SELECT
+                            CASE
+                                WHEN COALESCE(SUM(records_checked), 0) <= 0 THEN 0
+                                ELSE ROUND(
+                                    GREATEST(
+                                        0,
+                                        LEAST(
+                                            100,
+                                            (1 - (COALESCE(SUM(records_failed), 0)::numeric / NULLIF(COALESCE(SUM(records_checked), 0)::numeric, 0))) * 100
+                                        )
+                                    ),
+                                    1
+                                )
+                            END
+                        FROM quality_scope
+                    ) AS data_quality_score,
+                    (SELECT COUNT(*)::numeric FROM etl_scope) AS etl_total_runs,
+                    (SELECT COALESCE(SUM(CASE WHEN status = 'LOADED' THEN 1 ELSE 0 END), 0)::numeric FROM etl_scope) AS etl_loaded_runs,
+                    (SELECT COALESCE(ROUND(AVG(loaded_records), 1), 0)::numeric FROM etl_daily) AS records_per_day;
+            `, params)
+            : Promise.resolve({ rows: [] }),
+        hasRange
+            ? db.query(`
+                SELECT COUNT(*)::numeric AS value
+                FROM data_anomaly da
+                WHERE COALESCE(da.is_resolved, false) = false
+                  AND da.detected_at < now() - $1::interval;
+            `, params)
+            : Promise.resolve({ rows: [] }),
+    ]);
+
+    const currentOverview = currentOverviewResult.rows[0] ?? {};
+    const previousOverview = previousOverviewResult.rows[0] ?? {};
+
+    const activeUsersCurrent = toNumber(currentOverview.active_users);
+    const activeUsersPrevious = hasRange ? toNumber(previousOverview.active_users) : null;
+
+    const loginEventsCurrent = toNumber(currentOverview.login_events);
+    const loginEventsPrevious = hasRange ? toNumber(previousOverview.login_events) : null;
+    const workoutEventsCurrent = toNumber(currentOverview.workout_events);
+    const workoutEventsPrevious = hasRange ? toNumber(previousOverview.workout_events) : null;
+
+    const activityEventsCurrent = loginEventsCurrent + workoutEventsCurrent;
+    const activityEventsPrevious = hasRange
+        ? (toNumber(loginEventsPrevious) + toNumber(workoutEventsPrevious))
+        : null;
+
+    const dataQualityCurrent = round1(toNumber(currentOverview.data_quality_score));
+    const dataQualityPrevious = hasRange ? round1(toNumber(previousOverview.data_quality_score)) : null;
+
+    const anomaliesOpenCurrent = toNumber(anomaliesOpenCurrentResult.rows[0]?.value);
+    const anomaliesOpenBaseline = hasRange ? toNumber(anomaliesOpenBaselineResult.rows[0]?.value) : null;
+
+    const etlSuccessCurrent = round1(
+        safePercent(currentOverview.etl_loaded_runs, currentOverview.etl_total_runs)
+    );
+    const etlSuccessPrevious = hasRange
+        ? round1(safePercent(previousOverview.etl_loaded_runs, previousOverview.etl_total_runs))
+        : null;
+
+    const recordsPerDayCurrent = round1(toNumber(currentOverview.records_per_day));
+    const recordsPerDayPrevious = hasRange ? round1(toNumber(previousOverview.records_per_day)) : null;
+
+    const activeUsersTitle = normalizedRange === 'all'
+        ? 'Utilisateurs actifs (historique)'
+        : activeUsersLabel(normalizedRange);
+
+    const kpis = [
+        {
+            id: 'active-users',
+            label: activeUsersTitle,
+            description: 'Utilisateurs uniques connectes sur la periode selectionnee.',
+            value: activeUsersCurrent,
+            comparedValue: hasRange ? activeUsersPrevious : null,
+            trend: trendForVolume(normalizedRange, activeUsersCurrent, activeUsersPrevious),
+            trendUnit: '%',
+            status: 'success',
+        },
+        {
+            id: 'data-quality',
+            label: 'Score qualite donnees',
+            description: 'Qualite calculee depuis les controles data_quality_check_.',
+            value: dataQualityCurrent,
+            unit: '%',
+            target: DASHBOARD_DATA_QUALITY_TARGET,
+            comparedValue: hasRange ? dataQualityPrevious : null,
+            comparedUnit: hasRange ? '%' : undefined,
+            trend: trendForRate(normalizedRange, dataQualityCurrent, dataQualityPrevious),
+            trendUnit: 'pts',
+            status: dataQualityCurrent >= DASHBOARD_DATA_QUALITY_TARGET
+                ? 'success'
+                : dataQualityCurrent >= 80
+                    ? 'warning'
+                    : 'error',
+        },
+        {
+            id: 'anomalies-open',
+            label: 'Anomalies ouvertes',
+            description: 'Anomalies non resolues actuellement en base.',
+            value: anomaliesOpenCurrent,
+            comparedValue: hasRange ? anomaliesOpenBaseline : null,
+            trend: trendForVolume(normalizedRange, anomaliesOpenCurrent, anomaliesOpenBaseline),
+            trendUnit: '%',
+            trendPositiveIsGood: false,
+            status: anomaliesOpenCurrent === 0
+                ? 'success'
+                : anomaliesOpenCurrent <= 10
+                    ? 'warning'
+                    : 'error',
+        },
+        {
+            id: 'records-day',
+            label: 'Enregistrements / jour',
+            description: 'Moyenne quotidienne des records_loaded ETL sur la periode.',
+            value: recordsPerDayCurrent,
+            unit: 'rec/j',
+            comparedValue: hasRange ? recordsPerDayPrevious : null,
+            comparedUnit: hasRange ? 'rec/j' : undefined,
+            trend: trendForVolume(normalizedRange, recordsPerDayCurrent, recordsPerDayPrevious),
+            trendUnit: '%',
+            status: 'success',
+        },
+        {
+            id: 'etl-success',
+            label: 'Taux ETL succes',
+            description: 'Part des executions ETL en statut LOADED sur la periode.',
+            value: etlSuccessCurrent,
+            unit: '%',
+            target: DASHBOARD_ETL_SUCCESS_TARGET,
+            comparedValue: hasRange ? etlSuccessPrevious : null,
+            comparedUnit: hasRange ? '%' : undefined,
+            trend: trendForRate(normalizedRange, etlSuccessCurrent, etlSuccessPrevious),
+            trendUnit: 'pts',
+            status: etlSuccessCurrent >= DASHBOARD_ETL_SUCCESS_TARGET
+                ? 'success'
+                : etlSuccessCurrent >= 95
+                    ? 'warning'
+                    : 'error',
+        },
+        {
+            id: 'activity-events',
+            label: 'Evenements activite',
+            description: 'Total des connexions et sessions workout sur la periode.',
+            value: activityEventsCurrent,
+            comparedValue: hasRange ? activityEventsPrevious : null,
+            trend: trendForVolume(normalizedRange, activityEventsCurrent, activityEventsPrevious),
+            trendUnit: '%',
+            status: 'success',
+        },
+    ];
+
+    const userActivity = userActivityResult.rows.map((row) => ({
+        date: String(row.date),
+        value: toNumber(row.value),
+    }));
+
+    const dataQualityTrend = dataQualityTrendResult.rows.map((row) => ({
+        date: String(row.date),
+        value: round1(toNumber(row.value)),
+        target: DASHBOARD_DATA_QUALITY_TARGET,
+    }));
+
+    const anomaliesByType = anomaliesByTypeResult.rows.map((row, index) => {
+        const rawType = String(row.anomaly_type || 'UNKNOWN').toUpperCase();
+        return {
+            name: ANOMALY_TYPE_LABELS[rawType] ?? rawType,
+            value: toNumber(row.value),
+            color: PALETTE[index % PALETTE.length],
+        };
+    });
+
+    const dataIngestion = dataIngestionResult.rows.map((row) => ({
+        date: String(row.date),
+        Nutrition: toNumber(row.nutrition),
+        Fitness: toNumber(row.fitness),
+        'Biométrique': toNumber(row.biometric),
+        Sommeil: 0,
+    }));
+
+    const sourceTotals = dataIngestion.reduce(
+        (acc, row) => ({
+            Nutrition: acc.Nutrition + toNumber(row.Nutrition),
+            Fitness: acc.Fitness + toNumber(row.Fitness),
+            'Biométrique': acc['Biométrique'] + toNumber(row['Biométrique']),
+            Sommeil: acc.Sommeil + toNumber(row.Sommeil),
+        }),
+        { Nutrition: 0, Fitness: 0, 'Biométrique': 0, Sommeil: 0 }
+    );
+
+    const totalSourceEvents = Object.values(sourceTotals).reduce((sum, value) => sum + value, 0);
+
+    const dataSources = DASHBOARD_SERIES.map((series) => {
+        const value = sourceTotals[series.key] ?? 0;
+        return {
+            name: series.key,
+            value: totalSourceEvents > 0 ? round1((value / totalSourceEvents) * 100) : 0,
+            color: series.color,
+        };
+    });
+
+    const anomalyTrend = anomalyTrendResult.rows.map((row) => {
+        const newCount = toNumber(row.new_count);
+        const resolvedCount = toNumber(row.resolved_count);
+        return {
+            date: String(row.date),
+            Nouvelles: round1(newCount),
+            'Résolues': round1(resolvedCount),
+            Taux: newCount > 0 ? round1((resolvedCount / newCount) * 100) : 0,
+        };
+    });
+
+    return {
+        kpis,
+        userActivity,
+        dataQualityTrend,
+        dataSources,
+        anomaliesByType,
+        dataIngestion,
+        anomalyTrend,
+    };
 };
 
 export const getBusinessKpis = async (range = '30d') => {
