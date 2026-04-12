@@ -11,6 +11,9 @@ import analyticsRoutes, { partnersRouter, dataQualityRouter, dashboardRouter, an
 import etlRoutes from "./routes/etl.routes.js";
 import filesRoutes from "./routes/files.routes.js";
 
+// Cron pour les pipelines ETL
+import './cron/cronForEtl.js';
+
 const app = express();
 
 app.use(cors({
