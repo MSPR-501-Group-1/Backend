@@ -1,5 +1,29 @@
 import { db } from "../../db.js";
 
+const DEFAULT_ETL_API_URL = "http://etl:8000";
+
+const getEtlApiUrl = () => {
+    const rawUrl = String(process.env.ETL_API_URL || "").trim();
+    return rawUrl || DEFAULT_ETL_API_URL;
+};
+
+const callEtlApi = async (path, options = {}) => {
+    const response = await fetch(`${getEtlApiUrl()}${path}`, {
+        headers: {
+            "Content-Type": "application/json",
+            ...(options.headers || {}),
+        },
+        ...options,
+    });
+
+    if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`ETL API call failed (${response.status}): ${errorBody || response.statusText}`);
+    }
+
+    return response.json();
+};
+
 // GET an etl pipeline batch by it's id
 export const getEtlById = async (id) => {
     const result = await db.query(
@@ -28,38 +52,28 @@ export const launchEtlPipeline = async (pipeline) => {
     // Call the ETL API to launch the pipeline
     console.log(`Launching ETL pipeline: ${pipeline}`);
 
-    const response = await fetch(`${process.env.ETL_API_URL}/api/pipelines/${pipeline}/transform`, {
+    return callEtlApi(`/api/pipelines/${pipeline}/transform`, {
         method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
     });
-
-    if (!response.ok) {
-        throw new Error(`Failed to launch ETL pipeline: ${response.statusText}`);
-    }
-
-    const result = await response.json();
-    return result;
 };
 
 // Push ETL data to database (after transformation is done and batch is validated by the admin)
 export const pushEtlData = async (id, pipeline) => {
     // Call the ETL API to push the data to the database
     console.log(`Pushing ETL data for execution ${id} and pipeline ${pipeline}`);
-    const response = await fetch(`${process.env.ETL_API_URL}/api/pipelines/${pipeline}/load/${id}`, {
+    return callEtlApi(`/api/pipelines/${pipeline}/load/${id}`, {
         method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
     });
+};
 
-    if (!response.ok) {
-        throw new Error(`Failed to push ETL data: ${response.statusText}`);
+export const replayDlqCorrections = async ({ sourceTable, executionId }) => {
+    if (!sourceTable || !executionId) {
+        throw new Error("sourceTable and executionId are required for DLQ replay.");
     }
 
-    const result = await response.json();
-    return result;
+    return callEtlApi(`/api/dlq/replay/${encodeURIComponent(sourceTable)}/${encodeURIComponent(executionId)}`, {
+        method: "POST",
+    });
 };
 
 // Update the status of an ETL execution
