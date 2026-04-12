@@ -31,6 +31,8 @@ export const correctAnomaly = async (req, res) => {
             resolutionAction: req.body?.resolution_action,
             resolvedBy: req.body?.resolved_by,
             requesterUserId: req.user?.user_id,
+            correctedValue: req.body?.corrected_value,
+            replayNow: req.body?.replay_now,
         });
 
         return res.status(200).json({

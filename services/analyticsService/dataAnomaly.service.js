@@ -1,5 +1,7 @@
 import { db } from "../../db.js";
 import * as dataAnomalyRepository from "../../repositories/dataAnomaly.repository.js";
+import { replayDlqCorrections } from "../etlService/etl.service.js";
+import { applyDlqCorrection } from "./dlqCsv.service.js";
 
 const ALLOWED_RANGES = new Set(["7d", "30d", "90d", "all"]);
 const ALLOWED_STATUSES = new Set(["open", "resolved", "all"]);
@@ -8,8 +10,46 @@ const DEFAULT_PAGE = 1;
 const DEFAULT_PER_PAGE = 50;
 const MAX_PER_PAGE = 200;
 const RESOLUTION_ACTION_MAX_LENGTH = 50;
+const DLQ_SUPPORTED_SOURCE_TABLES = new Set(["ingredient", "exercise"]);
 
 const normalizeString = (value) => (typeof value === "string" ? value.trim() : "");
+
+const normalizeCorrectedValue = (value) => {
+    if (value === undefined || value === null) {
+        return "";
+    }
+
+    if (typeof value === "string") {
+        return value.trim();
+    }
+
+    if (typeof value === "number" || typeof value === "boolean") {
+        return String(value);
+    }
+
+    throw createHttpError(400, "corrected_value doit etre une chaine, un nombre ou un booleen.");
+};
+
+const normalizeReplayFlag = (value) => {
+    if (value === undefined || value === null || value === "") {
+        return true;
+    }
+
+    if (typeof value === "boolean") {
+        return value;
+    }
+
+    const normalized = String(value).trim().toLowerCase();
+    if (normalized === "true") {
+        return true;
+    }
+
+    if (normalized === "false") {
+        return false;
+    }
+
+    throw createHttpError(400, "replay_now doit etre true ou false.");
+};
 
 const toIsoOrNull = (value) => {
     if (!value) return null;
@@ -120,10 +160,19 @@ export const getAnomalies = async (rawQuery) => {
     };
 };
 
-export const correctAnomaly = async ({ anomalyId, resolutionAction, resolvedBy, requesterUserId }) => {
+export const correctAnomaly = async ({
+    anomalyId,
+    resolutionAction,
+    resolvedBy,
+    requesterUserId,
+    correctedValue,
+    replayNow,
+}) => {
     const normalizedAnomalyId = normalizeString(anomalyId);
     const normalizedResolutionAction = normalizeString(resolutionAction);
     const normalizedResolvedBy = normalizeString(resolvedBy);
+    const normalizedCorrectedValue = normalizeCorrectedValue(correctedValue);
+    const shouldReplayNow = normalizeReplayFlag(replayNow);
 
     if (!requesterUserId) {
         throw createHttpError(401, "Utilisateur non authentifie.");
@@ -149,6 +198,10 @@ export const correctAnomaly = async ({ anomalyId, resolutionAction, resolvedBy, 
         throw createHttpError(403, "resolved_by doit correspondre a l'utilisateur authentifie.");
     }
 
+    let replay = null;
+    let replayError = null;
+    let dlq = null;
+
     const client = await db.connect();
 
     try {
@@ -158,6 +211,31 @@ export const correctAnomaly = async ({ anomalyId, resolutionAction, resolvedBy, 
 
         if (!existingAnomaly) {
             throw createHttpError(404, "Anomalie introuvable.");
+        }
+
+        const normalizedSourceTable = normalizeString(existingAnomaly.source_table).toLowerCase();
+        const isDlqManaged = DLQ_SUPPORTED_SOURCE_TABLES.has(normalizedSourceTable);
+
+        if (isDlqManaged) {
+            if (!existingAnomaly.execution_id) {
+                throw createHttpError(500, "execution_id manquant pour une anomalie ETL.");
+            }
+
+            if (!normalizedCorrectedValue) {
+                throw createHttpError(
+                    400,
+                    "corrected_value est obligatoire pour les anomalies ETL rejouables."
+                );
+            }
+
+            dlq = await applyDlqCorrection({
+                sourceTable: normalizedSourceTable,
+                executionId: existingAnomaly.execution_id,
+                anomalyId: normalizedAnomalyId,
+                fieldName: normalizeString(existingAnomaly.field_name),
+                correctedValue: normalizedCorrectedValue,
+                resolvedBy: normalizedResolvedBy,
+            });
         }
 
         await dataAnomalyRepository.markAnomalyAsResolved(
@@ -174,7 +252,23 @@ export const correctAnomaly = async ({ anomalyId, resolutionAction, resolvedBy, 
 
         await client.query("COMMIT");
 
-        return mapRowToAnomaly(updatedAnomaly);
+        if (isDlqManaged && shouldReplayNow) {
+            try {
+                replay = await replayDlqCorrections({
+                    sourceTable: normalizedSourceTable,
+                    executionId: existingAnomaly.execution_id,
+                });
+            } catch (error) {
+                replayError = error.message || "Erreur inconnue pendant le rejeu DLQ.";
+            }
+        }
+
+        return {
+            ...mapRowToAnomaly(updatedAnomaly),
+            replay,
+            replay_error: replayError,
+            dlq,
+        };
     } catch (error) {
         await client.query("ROLLBACK");
         throw error;
