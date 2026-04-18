@@ -96,8 +96,8 @@ export const getDashboardData = async (range = '30d') => {
         : `
             WITH bounds AS (
                 SELECT
-                    COALESCE(MIN(date(lh.last_login)), current_date) AS min_day,
-                    COALESCE(MAX(date(lh.last_login)), current_date) AS max_day
+                    COALESCE(date(MIN(lh.last_login)), current_date) AS min_day,
+                    COALESCE(date(MAX(lh.last_login)), current_date) AS max_day
                 FROM login_history lh
             ),
             days AS (
@@ -685,8 +685,8 @@ export const getBusinessKpis = async (range = '30d') => {
         : `
             WITH bounds AS (
                 SELECT
-                    COALESCE(MIN(date(last_login)), current_date) AS min_day,
-                    COALESCE(MAX(date(last_login)), current_date) AS max_day
+                    COALESCE(date(MIN(last_login)), current_date) AS min_day,
+                    COALESCE(date(MAX(last_login)), current_date) AS max_day
                 FROM login_history
             ),
             days AS (
