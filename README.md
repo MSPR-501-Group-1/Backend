@@ -1,22 +1,34 @@
 # Backend
 
+API Node.js/Express utilisee par le frontend et les integrations ETL.
+
+## Prerequis
+
+- Node.js 20+
+- npm
+- PostgreSQL local, ou Docker Compose (recommande)
+
 ## Lancement local
 
-1. Installer les dependances:
+1. Installer les dependances.
+2. Demarrer le backend.
 
-```
+```bash
 npm install
-```
-
-2. Demarrer le backend:
-
-```
 npm start
+```
+
+Le service ecoute sur le port 3000 par defaut.
+
+## Lancement avec Docker (depuis la racine)
+
+```bash
+docker compose up --build db backend
 ```
 
 ## Variables d'environnement base de donnees
 
-Le backend accepte desormais les variables DB_* avec fallback POSTGRES_* (et fallback final sur variables standards PG*):
+Le backend accepte les variables DB_* avec fallback POSTGRES_* (puis fallback final sur variables PG*):
 
 - DB_HOST -> POSTGRES_HOST -> PGHOST -> localhost
 - DB_PORT -> POSTGRES_PORT -> PGPORT -> 5432
@@ -24,13 +36,13 @@ Le backend accepte desormais les variables DB_* avec fallback POSTGRES_* (et fal
 - DB_USER -> POSTGRES_USER -> PGUSER
 - DB_PASSWORD -> POSTGRES_PASSWORD -> PGPASSWORD
 
-Ce mapping est compatible avec le docker compose racine qui fournit DB_HOST, DB_PORT, DB_NAME, DB_USER et DB_PASSWORD.
+Le docker compose racine fournit actuellement les variables POSTGRES_* au service backend.
 
 ## Verification rapide
 
 Une fois le service demarre:
 
-```
+```http
 GET /health
 ```
 
